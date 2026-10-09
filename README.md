@@ -103,7 +103,9 @@ php dev/smoketest.php http://localhost:8081
 Hinweise:
 
 - Das Projekt liegt für Apache unter `/mnt/c/...`. Dieses Dateisystem unterscheidet keine Groß-/Kleinschreibung, IONOS schon. Abweichungen bei Schreibvarianten wie `/CONFIG.PHP` sind daher lokal möglich.
-- `mod_php` bleibt bewusst deaktiviert: Bei IONOS greifen `php_flag`-Direktiven in `.htaccess` nicht.
+- `mod_php` bleibt bewusst deaktiviert: Wie bei IONOS führt `php_flag` in `.htaccess` zu HTTP 500.
+- `mod_speling` ist wie bei IONOS aktiv; die Root-`.htaccess` schaltet es ab, der Smoke-Test prüft das.
+- Welche `.htaccess`-Direktiven IONOS erlaubt, wurde am 09.10.2026 getestet: `Options`, `RemoveHandler`, `AddType`, `<If>`, `RedirectMatch`, `CheckSpelling` und `Require` ja, `php_flag` nein.
 
 Teste zusätzlich manuell im Browser:
 

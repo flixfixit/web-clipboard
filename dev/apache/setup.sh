@@ -14,7 +14,8 @@ fi
 
 # FastCGI like IONOS, never mod_php
 a2dismod -q php8.3 mpm_prefork >/dev/null 2>&1 || true
-a2enmod -q mpm_event fcgid alias headers rewrite >/dev/null
+# speling: IONOS has mod_speling active, so .htaccess must cope with it
+a2enmod -q mpm_event fcgid alias headers rewrite speling >/dev/null
 
 sed "s|@PROJECT_DIR@|${PROJECT_DIR}|g" "${PROJECT_DIR}/dev/apache/clipboard-dev.conf" \
     > /etc/apache2/sites-available/clipboard-dev.conf
