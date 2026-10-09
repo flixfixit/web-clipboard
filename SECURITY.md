@@ -4,7 +4,9 @@ Diese App ist für private, kleine Deployments gedacht. Sie ist kein Mehrbenutze
 
 ## Empfehlungen für produktiven Betrieb
 
-- Setze in `config.php` einen langen, nicht erratbaren PIN.
+- Richte die App direkt nach dem Hochladen über das Setup ein und wähle ein langes, nicht erratbares Passwort. Bis das Setup abgeschlossen ist, kann jeder, der die URL kennt, es innerhalb des 30-Minuten-Fensters selbst abschließen.
+- Das Setup speichert nur einen `password_hash()`. Ein Klartext-`pin` in `config.php` funktioniert weiter, ist aber nicht empfohlen.
+- Sitzungen sind an das aktuelle Passwort gebunden. Nach einem Passwortwechsel sind alle bestehenden Sitzungen ungültig.
 - Betreibe die App nur über HTTPS.
 - Committe niemals `config.php`, `data.json`, `files.json` oder Upload-Inhalte.
 - Prüfe, dass `.htaccess` aktiv ist und direkte Requests auf `data.json`, `files.json`, `config.php`, Dateien unter `uploads/` und Dot-Pfade wie `.git/` blockiert. Schnelltest: `curl -s -o /dev/null -w "%{http_code}" https://deine-domain/pfad/.git/HEAD` muss 403 oder 404 liefern.
