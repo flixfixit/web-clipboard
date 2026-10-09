@@ -62,10 +62,16 @@ function state(): ?array {
 }
 
 echo "Smoke-Test gegen $base\n\nSchutzregeln (ohne Login):\n";
-foreach (['/config.php', '/data.json', '/files.json', '/.devdata/data.json', '/uploads/.htaccess',
-          '/dev/router.php', '/.git/HEAD', '/config.php.', '/CONFIG.PHP'] as $p) {
+foreach (['/config.php', '/data.json', '/files.json', '/.devdata/', '/.devdata/data.json', '/uploads/',
+          '/uploads/.htaccess', '/dev/', '/dev/router.php', '/.git/HEAD', '/.git/config'] as $p) {
     [$s] = req('GET', $p);
     check("$p → 403", $s === 403, "Status $s");
+}
+// Spelling variants: Windows maps them to the real file, Linux returns 404.
+// Either way they must not be served (no 2xx).
+foreach (['/config.php.', '/CONFIG.PHP', '/Data.JSON'] as $p) {
+    [$s] = req('GET', $p);
+    check("$p wird nicht ausgeliefert", $s < 200 || $s >= 300, "Status $s");
 }
 check('?json=1 liefert ohne Login keine Daten', state() === null);
 [, $body] = req('POST', '/', ['pin' => 'falsch-' . bin2hex(random_bytes(4))]);
