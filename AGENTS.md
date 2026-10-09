@@ -19,6 +19,7 @@ Diese Dateien und Ordnerinhalte sind lokale Laufzeitdaten und dürfen nicht ins 
 ```text
 .
 ├── index.php              # App, Routing, Auth, Storage, HTML, CSS, JS
+├── setup.php              # Einrichtung beim ersten Aufruf (nur über index.php, ohne config.php)
 ├── config.example.php     # Vorlage für lokale Konfiguration
 ├── config.php             # lokale Konfiguration, nicht committen
 ├── .htaccess              # Schutz für JSON-Speicher und config.php
@@ -44,7 +45,8 @@ Diese Dateien und Ordnerinhalte sind lokale Laufzeitdaten und dürfen nicht ins 
 
 ## Wichtige Invarianten
 
-- Keine neuen Aktionen dürfen vor der Authentifizierungsprüfung erreichbar sein.
+- Keine neuen Aktionen dürfen vor der Authentifizierungsprüfung erreichbar sein. Einzige Ausnahme ist `setup.php`: nur solange keine `config.php` existiert, nur im 30-Minuten-Zeitfenster und nie direkt aufrufbar.
+- `setup.php` enthält Kopien von `.htaccess` und `uploads/.htaccess`. Wer diese Dateien ändert, passt `setupHtaccessFiles()` mit an; `dev/smoketest.php` prüft die Übereinstimmung.
 - Upload-Blobs dürfen nie direkt öffentlich verlinkt oder anhand ihres Dateinamens ausgeliefert werden.
 - `config.php`, JSON-Daten und Upload-Inhalte bleiben aus Git ausgeschlossen.
 - UI-Texte sind aktuell Deutsch; neue sichtbare Texte bitte ebenfalls Deutsch halten.
@@ -91,6 +93,7 @@ Zusätzlich manuell prüfen:
 - `Alle löschen`
 - Auto-Refresh im angemeldeten Zustand
 - Verhalten bei leerem Clipboard
+- Bei Änderungen an `setup.php`: Kopie von `index.php` und `setup.php` in einen leeren Ordner unter dem lokalen Apache legen und das Setup durchspielen (Selbstprüfung muss grün sein)
 
 ## Sicherheits-Checkliste für Agents
 

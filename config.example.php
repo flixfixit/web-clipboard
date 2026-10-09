@@ -1,7 +1,12 @@
 <?php
 
 return [
-    // Set your own PIN here or via the CLIPBOARD_PIN environment variable.
+    // Usually written by the setup (just open the app without a config.php).
+    // Hash of the password: php -r "echo password_hash('your-password', PASSWORD_DEFAULT);"
+    // If set, it wins over 'pin'.
+    'pin_hash' => '',
+
+    // Alternative: plain PIN here or via the CLIPBOARD_PIN environment variable.
     // The placeholder below is rejected: login stays locked until it is changed.
     'pin' => getenv('CLIPBOARD_PIN') ?: 'replace-with-a-long-random-pin',
 
