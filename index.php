@@ -10,9 +10,32 @@ $defaultConfig = [
     'file_ttl_days'  => 7,       // uploaded files auto-delete after this many days
     'confirm_delete' => false,   // true = ask before deleting single entries/files
     'session_name'   => 'clipboard_session',
+    'login_max_attempts'   => 5,    // failed logins per IP before a lockout
+    'login_lockout_minutes' => 15,
 ];
 
 $localConfigFile = __DIR__ . '/config.php';
+
+// Security headers for every response (app and setup). The app loads nothing
+// from other origins; inline script/style is needed by the single-file layout.
+header("Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline'; "
+    . "style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; "
+    . "form-action 'self'; frame-ancestors 'none'; base-uri 'none'; object-src 'none'");
+header('X-Frame-Options: DENY');
+header('X-Content-Type-Options: nosniff');
+header('Referrer-Policy: no-referrer');
+
+// Session cookie: only for this app's directory, never readable by JS, HTTPS-only
+// when served over HTTPS, and not sent along with cross-site subrequests/POSTs.
+define('IS_HTTPS', !empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off');
+ini_set('session.use_strict_mode', '1');
+session_set_cookie_params([
+    'lifetime' => 0,
+    'path'     => rtrim(str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME'] ?? '/')), '/') . '/',
+    'secure'   => IS_HTTPS,
+    'httponly' => true,
+    'samesite' => 'Lax',
+]);
 
 // First run: without config.php and CLIPBOARD_PIN, show the setup instead of the
 // app. setup.php is the only pre-auth action and locks itself once config.php exists.
@@ -35,6 +58,9 @@ define('MAX_ENTRIES', (int)$config['max_entries']);
 define('FILE_TTL_DAYS', (int)$config['file_ttl_days']);
 define('CONFIRM_DELETE', (bool)$config['confirm_delete']);
 define('SESSION_NAME', (string)$config['session_name']);
+define('LOGIN_MAX_ATTEMPTS', max(1, (int)$config['login_max_attempts']));
+define('LOGIN_LOCKOUT', max(1, (int)$config['login_lockout_minutes']) * 60);
+define('ATTEMPTS_FILE', dirname(DATA_FILE) . '/login-attempts.json');
 
 // An empty PIN or one of the documented placeholders must never grant access,
 // otherwise a fresh deployment without config.php would be open to anyone.
@@ -49,6 +75,36 @@ function checkPin(string $input): bool {
     return PIN_HASH !== '' ? password_verify($input, PIN_HASH) : hash_equals(PIN, $input);
 }
 
+// Login throttling: failed attempts per client IP (stored hashed) within the
+// lockout window. Returns the seconds until the next attempt is allowed (0 = now).
+// $record: null = only check, true = success (reset), false = failure (count).
+// Behind a proxy that does not pass the client IP on, all clients share one counter.
+function loginThrottle(?bool $record = null): int {
+    $key = hash('sha256', 'clipboard-login|' . ($_SERVER['REMOTE_ADDR'] ?? ''));
+    $fh = @fopen(ATTEMPTS_FILE, 'c+');
+    if ($fh === false) return 0; // not writable: fail open rather than lock everyone out
+    flock($fh, LOCK_EX);
+    $all = json_decode((string)stream_get_contents($fh), true);
+    $all = is_array($all) ? $all : [];
+    $now = time();
+    foreach ($all as $k => $times) {
+        $all[$k] = array_values(array_filter((array)$times, fn($t) => is_int($t) && $t > $now - LOGIN_LOCKOUT));
+        if (!$all[$k]) unset($all[$k]);
+    }
+    if ($record === true) unset($all[$key]);
+    if ($record === false) $all[$key][] = $now;
+    $mine = $all[$key] ?? [];
+    $wait = count($mine) >= LOGIN_MAX_ATTEMPTS ? min($mine) + LOGIN_LOCKOUT - $now : 0;
+    if ($record !== null) {
+        ftruncate($fh, 0);
+        rewind($fh);
+        fwrite($fh, json_encode($all));
+    }
+    flock($fh, LOCK_UN);
+    fclose($fh);
+    return max(0, $wait);
+}
+
 // ── Session / Auth ───────────────────────────────────────────────────────────
 session_name(SESSION_NAME);
 session_start();
@@ -58,12 +114,40 @@ $authenticated = PIN_CONFIGURED && is_string($_SESSION['auth'] ?? null) && hash_
 if (!PIN_CONFIGURED) {
     $loginError = 'Kein PIN konfiguriert. Bitte in config.php (oder per CLIPBOARD_PIN) einen eigenen PIN setzen.';
 } elseif ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['pin'])) {
-    if (checkPin((string)$_POST['pin'])) {
+    if (($wait = loginThrottle()) > 0) {
+        $loginError = 'Zu viele Fehlversuche. Bitte in ' . (int)ceil($wait / 60) . ' Minute(n) erneut versuchen.';
+    } elseif (checkPin((string)$_POST['pin'])) {
+        loginThrottle(true);
         session_regenerate_id(true);
         $_SESSION['auth'] = AUTH_TOKEN;
+        $_SESSION['csrf'] = bin2hex(random_bytes(32));
         $authenticated = true;
     } else {
-        $loginError = 'Falscher PIN.';
+        $wait = loginThrottle(false);
+        $loginError = $wait > 0
+            ? 'Falscher PIN. Zu viele Fehlversuche – Login für ' . (int)ceil($wait / 60) . ' Minute(n) gesperrt.'
+            : 'Falscher PIN.';
+    }
+}
+
+// CSRF protection: every state-changing request of a logged-in user (any POST,
+// and the delete/logout links) must carry the session's token.
+if ($authenticated && empty($_SESSION['csrf'])) $_SESSION['csrf'] = bin2hex(random_bytes(32));
+define('CSRF_TOKEN', (string)($_SESSION['csrf'] ?? ''));
+$changesState = ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['pin']))
+    || isset($_GET['delete']) || isset($_GET['delfile']) || isset($_GET['clearall']) || isset($_GET['logout']);
+if ($authenticated && $changesState) {
+    $sent = $_POST['csrf'] ?? $_GET['csrf'] ?? '';
+    if (!is_string($sent) || !hash_equals(CSRF_TOKEN, $sent)) {
+        http_response_code(403);
+        if (isset($_POST['chunked']) || isset($_POST['ajax'])) {
+            header('Content-Type: application/json; charset=utf-8');
+            echo json_encode(['ok' => false, 'error' => 'Ungültiges Sicherheits-Token. Bitte die Seite neu laden.']);
+        } else {
+            header('Content-Type: text/plain; charset=utf-8');
+            echo "Ungültiges Sicherheits-Token. Bitte die Seite neu laden.\n";
+        }
+        exit;
     }
 }
 
@@ -457,9 +541,9 @@ header('Content-Type: text/html; charset=utf-8');
     <div style="display:flex;gap:.5rem;align-items:center">
       <button class="btn btn-secondary" onclick="refreshEntries(this)">Aktualisieren</button>
       <?php if (!empty($entries) || !empty($files)): ?>
-        <a class="btn btn-secondary" href="?clearall" onclick="return confirm('Alle Einträge UND Dateien löschen?')">Alle löschen</a>
+        <a class="btn btn-secondary" href="?clearall&amp;csrf=<?= htmlspecialchars(CSRF_TOKEN) ?>" onclick="return confirm('Alle Einträge UND Dateien löschen?')">Alle löschen</a>
       <?php endif; ?>
-      <a class="btn btn-secondary" href="?logout">Abmelden</a>
+      <a class="btn btn-secondary" href="?logout&amp;csrf=<?= htmlspecialchars(CSRF_TOKEN) ?>">Abmelden</a>
     </div>
   </div>
 
@@ -472,6 +556,7 @@ header('Content-Type: text/html; charset=utf-8');
 
   <div class="card">
     <form method="post">
+      <input type="hidden" name="csrf" value="<?= htmlspecialchars(CSRF_TOKEN) ?>">
       <textarea name="text" placeholder="Text hier einfügen …" autofocus></textarea>
       <div class="row">
         <button class="btn btn-primary" type="submit">Speichern</button>
@@ -481,6 +566,7 @@ header('Content-Type: text/html; charset=utf-8');
 
   <div class="card">
     <form method="post" enctype="multipart/form-data" id="uploadForm">
+      <input type="hidden" name="csrf" value="<?= htmlspecialchars(CSRF_TOKEN) ?>">
       <div class="dropzone" id="dropzone">
         Datei hierher ziehen oder klicken zum Auswählen
         <input type="file" name="upload[]" id="fileInput" multiple style="display:none">
@@ -499,7 +585,7 @@ header('Content-Type: text/html; charset=utf-8');
     <?php foreach ($entries as $e): ?>
       <div class="entry">
         <div class="entry-actions">
-          <a class="icon-btn icon-btn-danger" href="?delete=<?= urlencode($e['id']) ?>" onclick="return confirmDelete('Löschen?')" title="Löschen" aria-label="Löschen"><?= $trashSvg ?></a>
+          <a class="icon-btn icon-btn-danger" href="?delete=<?= urlencode($e['id']) ?>&amp;csrf=<?= htmlspecialchars(CSRF_TOKEN) ?>" onclick="return confirmDelete('Löschen?')" title="Löschen" aria-label="Löschen"><?= $trashSvg ?></a>
           <button class="icon-btn" onclick="copyText(this)" data-text="<?= htmlspecialchars($e['text'], ENT_QUOTES) ?>" title="Kopieren" aria-label="Kopieren"><?= $copySvg ?></button>
         </div>
         <div class="entry-text"><?= htmlspecialchars($e['text']) ?></div>
@@ -522,13 +608,14 @@ header('Content-Type: text/html; charset=utf-8');
       </div>
       <div class="file-actions">
         <a class="btn btn-dl" href="?download=<?= urlencode($f['id']) ?>">Download</a>
-        <a class="btn btn-danger" href="?delfile=<?= urlencode($f['id']) ?>" onclick="return confirmDelete('Datei löschen?')">Löschen</a>
+        <a class="btn btn-danger" href="?delfile=<?= urlencode($f['id']) ?>&amp;csrf=<?= htmlspecialchars(CSRF_TOKEN) ?>" onclick="return confirmDelete('Datei löschen?')">Löschen</a>
       </div>
     </div>
   <?php endforeach; ?>
   </div>
 
 <script>
+const CSRF = <?= json_encode(CSRF_TOKEN) ?>; // sent with every state-changing request
 const REFRESH_INTERVAL = 15000; // ms
 let lastSignature = null;
 
@@ -544,7 +631,7 @@ function renderData(data) {
     texts.innerHTML = data.texts.map(e => `
       <div class="entry">
         <div class="entry-actions">
-          <a class="icon-btn icon-btn-danger" href="?delete=${encodeURIComponent(e.id)}" onclick="return confirmDelete('Löschen?')" title="Löschen" aria-label="Löschen">${ICON_TRASH}</a>
+          <a class="icon-btn icon-btn-danger" href="?delete=${encodeURIComponent(e.id)}&amp;csrf=${CSRF}" onclick="return confirmDelete('Löschen?')" title="Löschen" aria-label="Löschen">${ICON_TRASH}</a>
           <button class="icon-btn" onclick="copyText(this)" data-text="${escAttr(e.text)}" title="Kopieren" aria-label="Kopieren">${ICON_COPY}</button>
         </div>
         <div class="entry-text">${escHtml(e.text)}</div>
@@ -566,7 +653,7 @@ function renderData(data) {
       </div>
       <div class="file-actions">
         <a class="btn btn-dl" href="?download=${encodeURIComponent(f.id)}">Download</a>
-        <a class="btn btn-danger" href="?delfile=${encodeURIComponent(f.id)}" onclick="return confirmDelete('Datei löschen?')">Löschen</a>
+        <a class="btn btn-danger" href="?delfile=${encodeURIComponent(f.id)}&amp;csrf=${CSRF}" onclick="return confirmDelete('Datei löschen?')">Löschen</a>
       </div>
     </div>`).join('');
 }
@@ -742,6 +829,7 @@ uploadForm.addEventListener('submit', e => {
       data.append('totalChunks', totalChunks);
       data.append('fileName', file.name);
       data.append('chunk', blob);
+      data.append('csrf', CSRF);
 
       const xhr = new XMLHttpRequest();
       xhr.open('POST', location.pathname, true);

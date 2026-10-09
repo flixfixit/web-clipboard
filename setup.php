@@ -193,7 +193,11 @@ function runSetup(string $dir, string $configFile): void {
             $errors[] = 'Maximale Text-Einträge: 1 bis 1000.';
         }
         if (!$errors) {
-            $result = setupInstall($dir, $configFile, ['pin_hash' => password_hash($password, PASSWORD_DEFAULT)] + $values);
+            // Own session name per instance, so several instances on one domain never share a session
+            $result = setupInstall($dir, $configFile, [
+                'pin_hash'     => password_hash($password, PASSWORD_DEFAULT),
+                'session_name' => 'clipboard_' . bin2hex(random_bytes(4)),
+            ] + $values);
             if (isset($result['error'])) {
                 $errors[] = $result['error'];
                 $result = null;
