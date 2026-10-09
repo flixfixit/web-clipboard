@@ -9,6 +9,8 @@
 - MIT-Lizenz und `.gitattributes` (LF-Zeilenenden) ergänzt.
 - Lokale Dev-Umgebung unter `dev/`: Startskript, Router als `.htaccess`-Ersatz für `php -S`, Dev-Konfiguration mit Daten in `.devdata/` und Smoke-Test.
 - Lokaler Apache in WSL (`dev/apache.ps1`, `dev/apache/`), der das IONOS-Hosting nachbildet: PHP 8.3 als FastCGI über `mod_fcgid`, `.htaccess` aktiv, IONOS-PHP-Grenzen.
+- `uploads/.htaccess` ohne `php_flag`: Bei PHP als FastCGI (IONOS) ist das ein ungültiger Befehl und führte zu HTTP 500 statt 403.
+- `.htaccess` schaltet `mod_speling` ab, damit unbekannte Pfade keine ähnlichen Dateinamen auflisten; der lokale Apache aktiviert `mod_speling` wie IONOS.
 - `.htaccess` sperrt Dot-Pfade wie `.git/` und `.env` (außer `.well-known/`); vorher war ein mitdeployter `.git`-Ordner abrufbar.
 
 ## 0.1.0 - 2026-10-09

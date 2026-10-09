@@ -29,3 +29,9 @@
 <IfModule !mod_authz_core.c>
     RedirectMatch 403 "/\.(?!well-known/)"
 </IfModule>
+
+# mod_speling (active on IONOS) answers unknown paths with a "Multiple Choices"
+# page that lists similar file names, e.g. data.json or .gitignore
+<IfModule mod_speling.c>
+    CheckSpelling Off
+</IfModule>

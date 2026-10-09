@@ -73,6 +73,11 @@ foreach (['/config.php.', '/CONFIG.PHP', '/Data.JSON'] as $p) {
     [$s] = req('GET', $p);
     check("$p wird nicht ausgeliefert", $s < 200 || $s >= 300, "Status $s");
 }
+// mod_speling must not list similar file names (300 Multiple Choices)
+foreach (['/.gibt-es-nicht', '/dat.json', '/DATA.JSON', '/uploads.x'] as $p) {
+    [$s, $body] = req('GET', $p);
+    check("$p verrät keine Dateinamen", $s !== 300 && $s !== 301 && !str_contains($body, 'data.json'), "Status $s");
+}
 check('?json=1 liefert ohne Login keine Daten', state() === null);
 [, $body] = req('POST', '/', ['pin' => 'falsch-' . bin2hex(random_bytes(4))]);
 check('Falscher PIN wird abgelehnt', str_contains($body, 'Falscher PIN') && state() === null);

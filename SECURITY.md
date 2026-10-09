@@ -8,7 +8,8 @@ Diese App ist für private, kleine Deployments gedacht. Sie ist kein Mehrbenutze
 - Betreibe die App nur über HTTPS.
 - Committe niemals `config.php`, `data.json`, `files.json` oder Upload-Inhalte.
 - Prüfe, dass `.htaccess` aktiv ist und direkte Requests auf `data.json`, `files.json`, `config.php`, Dateien unter `uploads/` und Dot-Pfade wie `.git/` blockiert. Schnelltest: `curl -s -o /dev/null -w "%{http_code}" https://deine-domain/pfad/.git/HEAD` muss 403 oder 404 liefern.
-- Bei FastCGI-Hosting (z. B. IONOS, „Server API: cgi-fcgi“) wirken `php_flag`-Direktiven in `.htaccess` nicht. Der Schutz von `uploads/` beruht dort auf `Require all denied` sowie `RemoveHandler`/`AddType`.
+- Bei FastCGI-Hosting (z. B. IONOS, „Server API: cgi-fcgi“) ist `php_flag` in `.htaccess` ein ungültiger Befehl und führt zu HTTP 500. `uploads/.htaccess` verzichtet deshalb darauf; der Schutz beruht auf `Require all denied` sowie `RemoveHandler`/`AddType`. Liegt auf dem Server noch eine ältere `uploads/.htaccess` mit `php_flag`, durch die aktuelle ersetzen.
+- Die Root-`.htaccess` schaltet `mod_speling` ab (`CheckSpelling Off`). Sonst beantwortet Apache unbekannte Pfade mit einer Liste ähnlicher Dateinamen.
 - Lege `data_file`, `files_file` und `upload_dir` nach Möglichkeit außerhalb des öffentlichen Webroots ab.
 - Begrenze Upload-Größen zusätzlich über Webserver- oder PHP-Konfiguration, wenn die Instanz öffentlich erreichbar ist.
 - Nutze eine eigene Instanz pro Vertrauenskreis. Die App hat keine Rollen oder getrennte Benutzerkonten.
