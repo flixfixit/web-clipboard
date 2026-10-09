@@ -1,0 +1,20 @@
+# No direct access to uploaded blobs — downloads are streamed via index.php
+<IfModule mod_authz_core.c>
+    Require all denied
+</IfModule>
+<IfModule !mod_authz_core.c>
+    Order deny,allow
+    Deny from all
+</IfModule>
+
+Options -Indexes
+
+# Never execute anything in here as a script
+<IfModule mod_php.c>
+    php_flag engine off
+</IfModule>
+<IfModule mod_php7.c>
+    php_flag engine off
+</IfModule>
+RemoveHandler .php .phtml .php3 .php4 .php5 .php7 .phps .cgi .pl .py
+AddType application/octet-stream .php .phtml .phps .cgi .pl .py .html .htm .shtml
