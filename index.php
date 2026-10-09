@@ -2,6 +2,7 @@
 // ── Config ──────────────────────────────────────────────────────────────────
 $defaultConfig = [
     'pin'            => getenv('CLIPBOARD_PIN') ?: '',
+    'pin_hash'       => '',      // password_hash() of the password, written by setup.php; wins over 'pin'
     'data_file'      => __DIR__ . '/data.json',
     'files_file'     => __DIR__ . '/files.json',
     'upload_dir'     => __DIR__ . '/uploads',
@@ -12,10 +13,21 @@ $defaultConfig = [
 ];
 
 $localConfigFile = __DIR__ . '/config.php';
+
+// First run: without config.php and CLIPBOARD_PIN, show the setup instead of the
+// app. setup.php is the only pre-auth action and locks itself once config.php exists.
+if (!is_file($localConfigFile) && (string)getenv('CLIPBOARD_PIN') === '' && is_file(__DIR__ . '/setup.php')) {
+    define('CLIPBOARD_APP', true);
+    require __DIR__ . '/setup.php';
+    runSetup(__DIR__, $localConfigFile);
+    exit;
+}
+
 $localConfig = is_file($localConfigFile) ? require $localConfigFile : [];
 $config = is_array($localConfig) ? array_replace($defaultConfig, $localConfig) : $defaultConfig;
 
 define('PIN', (string)$config['pin']);
+define('PIN_HASH', (string)$config['pin_hash']);
 define('DATA_FILE', (string)$config['data_file']);
 define('FILES_FILE', (string)$config['files_file']);
 define('UPLOAD_DIR', (string)$config['upload_dir']);
@@ -26,19 +38,29 @@ define('SESSION_NAME', (string)$config['session_name']);
 
 // An empty PIN or one of the documented placeholders must never grant access,
 // otherwise a fresh deployment without config.php would be open to anyone.
-define('PIN_CONFIGURED', PIN !== '' && !in_array(PIN, ['change-me', 'replace-with-a-long-random-pin'], true));
+define('PIN_CONFIGURED', PIN_HASH !== ''
+    || (PIN !== '' && !in_array(PIN, ['change-me', 'replace-with-a-long-random-pin'], true)));
+
+// Sessions store a fingerprint of the current secret instead of a plain flag,
+// so changing the password (e.g. re-running the setup) logs out every session.
+define('AUTH_TOKEN', hash('sha256', 'clipboard-auth|' . (PIN_HASH !== '' ? PIN_HASH : PIN)));
+
+function checkPin(string $input): bool {
+    return PIN_HASH !== '' ? password_verify($input, PIN_HASH) : hash_equals(PIN, $input);
+}
 
 // ── Session / Auth ───────────────────────────────────────────────────────────
 session_name(SESSION_NAME);
 session_start();
 
-$authenticated = PIN_CONFIGURED && isset($_SESSION['auth']) && $_SESSION['auth'] === true;
+$authenticated = PIN_CONFIGURED && is_string($_SESSION['auth'] ?? null) && hash_equals(AUTH_TOKEN, $_SESSION['auth']);
 
 if (!PIN_CONFIGURED) {
     $loginError = 'Kein PIN konfiguriert. Bitte in config.php (oder per CLIPBOARD_PIN) einen eigenen PIN setzen.';
 } elseif ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['pin'])) {
-    if (hash_equals(PIN, (string)$_POST['pin'])) {
-        $_SESSION['auth'] = true;
+    if (checkPin((string)$_POST['pin'])) {
+        session_regenerate_id(true);
+        $_SESSION['auth'] = AUTH_TOKEN;
         $authenticated = true;
     } else {
         $loginError = 'Falscher PIN.';

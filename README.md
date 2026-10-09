@@ -4,7 +4,8 @@ Eine kleine, eigenständige PHP-Clipboard-Webapp für private Textschnipsel und 
 
 ## Features
 
-- PIN-geschützter Zugriff per PHP-Session
+- Passwort-/PIN-geschützter Zugriff per PHP-Session (Passwort wird als Hash gespeichert)
+- Einrichtung im Browser: Ordner auf den Webspace kopieren, App aufrufen, Passwort festlegen
 - Text-Clipboard mit Kopieren, Löschen und automatischem Refresh
 - Datei-Uploads mit Drag & Drop, Fortschrittsanzeige und Chunked Uploads
 - Automatisches Löschen hochgeladener Dateien nach konfigurierbarer TTL
@@ -13,7 +14,7 @@ Eine kleine, eigenständige PHP-Clipboard-Webapp für private Textschnipsel und 
 ## Voraussetzungen
 
 - PHP 8.0 oder neuer empfohlen
-- Schreibrechte für `data.json`, `files.json` und `uploads/`
+- Schreibrechte für das App-Verzeichnis (für das Setup) bzw. für `data.json`, `files.json` und `uploads/`
 - Für produktiven Betrieb: HTTPS und ein Webserver, der die Schutzregeln aus `.htaccess` beachtet, zum Beispiel Apache
 
 ## Schnellstart
@@ -27,6 +28,23 @@ Danach `http://127.0.0.1:8080` öffnen und den PIN aus `config.php` verwenden.
 
 Wichtig: Der PHP-Entwicklungsserver wertet `.htaccess` nicht aus. Nutze ihn nur lokal. Für produktive Deployments muss der direkte Zugriff auf `config.php`, `data.json`, `files.json` und `uploads/` blockiert sein.
 
+## Einrichtung im Browser
+
+1. Den Inhalt des Repositorys in einen Ordner des Webservers kopieren (`config.php` gehört nicht dazu).
+2. Die App im Browser aufrufen. Ohne `config.php` erscheint statt des Logins das Setup.
+3. Passwort (mindestens 8 Zeichen), Lebensdauer der Dateien, maximale Anzahl Text-Einträge und Löschbestätigung festlegen.
+
+Das Setup legt `config.php` (nur mit dem Hash des Passworts), `data.json`, `files.json`, `uploads/` und fehlende `.htaccess`-Dateien an. Bestehende `.htaccess`-Dateien überschreibt es nicht, weist aber auf Abweichungen hin. Anschließend prüft es per HTTP, ob `data.json`, `config.php` und `uploads/` wirklich gesperrt sind, und warnt, wenn der Webserver die `.htaccess`-Regeln ignoriert.
+
+Schutz des Setups:
+
+- Es ist nur erreichbar, solange keine `config.php` existiert und `CLIPBOARD_PIN` nicht gesetzt ist.
+- Es ist nur 30 Minuten nach dem ersten Aufruf offen. Danach `setup-started.json` im App-Verzeichnis löschen, um ein neues Zeitfenster zu öffnen.
+- Innerhalb des Zeitfensters gilt: Wer das Setup zuerst abschickt, legt das Passwort fest. Daher die App direkt nach dem Hochladen einrichten.
+- `setup.php` ist nicht direkt aufrufbar, nur über `index.php`.
+
+Passwort ändern: `config.php` löschen und die App erneut aufrufen. Ein neues Passwort meldet alle bestehenden Sitzungen ab. Die Daten bleiben erhalten.
+
 ## Konfiguration
 
 Die App liest zuerst die Standardwerte in `index.php`, dann optional `config.php`. `config.php` ist absichtlich in `.gitignore`, damit keine Geheimnisse oder lokalen Pfade ins Repository gelangen.
@@ -35,7 +53,8 @@ Solange kein eigener PIN gesetzt ist (leer oder noch der Platzhalter aus `config
 
 | Option | Bedeutung |
 | --- | --- |
-| `pin` | Login-PIN. Ohne `config.php` wird `CLIPBOARD_PIN` aus der Umgebung verwendet; die Vorlage `config.example.php` übernimmt die Variable ebenfalls. Ein fest in `config.php` eingetragener PIN hat Vorrang. |
+| `pin_hash` | Vom Setup geschriebener `password_hash()` des Passworts. Hat Vorrang vor `pin`. Manuell erzeugen: `php -r "echo password_hash('dein-passwort', PASSWORD_DEFAULT);"` |
+| `pin` | Login-PIN im Klartext (Alternative zu `pin_hash`). Ohne `config.php` wird `CLIPBOARD_PIN` aus der Umgebung verwendet; die Vorlage `config.example.php` übernimmt die Variable ebenfalls. Ein fest in `config.php` eingetragener PIN hat Vorrang. |
 | `data_file` | JSON-Datei für Text-Einträge. |
 | `files_file` | JSON-Datei für Datei-Metadaten. |
 | `upload_dir` | Ordner für hochgeladene Datei-Blobs und temporäre Chunks. |
@@ -47,8 +66,8 @@ Solange kein eigener PIN gesetzt ist (leer oder noch der Platzhalter aus `config
 ## Deployment
 
 1. Repository auf den Server kopieren oder per GitHub Actions/deinem Hosting-Workflow deployen.
-2. `config.example.php` zu `config.php` kopieren und einen starken PIN setzen.
-3. Schreibrechte prüfen:
+2. App aufrufen und das Setup abschließen (siehe „Einrichtung im Browser“). Alternativ `config.example.php` zu `config.php` kopieren und `pin_hash` oder `pin` setzen.
+3. Falls das Setup nicht schreiben darf, Schreibrechte setzen:
 
 ```bash
 touch data.json files.json
@@ -57,7 +76,7 @@ chmod 664 data.json files.json
 chmod 775 uploads
 ```
 
-4. Prüfen, dass `.htaccess` aktiv ist. Bei Apache muss `AllowOverride` für das Verzeichnis passend gesetzt sein.
+4. Prüfen, dass `.htaccess` aktiv ist (das Setup zeigt das Ergebnis seiner Prüfung an). Bei Apache muss `AllowOverride` für das Verzeichnis passend gesetzt sein.
 5. HTTPS aktivieren.
 
 Für Nginx muss der Schutz manuell in die Server-Konfiguration übertragen werden, weil `.htaccess` dort nicht gilt.

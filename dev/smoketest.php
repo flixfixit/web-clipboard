@@ -61,15 +61,25 @@ function state(): ?array {
     return is_array($data) && isset($data['texts']) ? $data : null;
 }
 
-echo "Smoke-Test gegen $base\n\nSchutzregeln (ohne Login):\n";
-foreach (['/config.php', '/data.json', '/files.json', '/.devdata/', '/.devdata/data.json', '/uploads/',
+echo "Smoke-Test gegen $base\n\nRepository:\n";
+// setup.php writes its own copies of the .htaccess files; they must not drift
+define('CLIPBOARD_APP', true);
+require_once dirname(__DIR__) . '/setup.php';
+foreach (setupHtaccessFiles() as $name => $content) {
+    $file = dirname(__DIR__) . '/' . $name;
+    check("setup.php-Vorlage für $name ist aktuell",
+        is_file($file) && setupNormalize((string)file_get_contents($file)) === setupNormalize($content));
+}
+
+echo "\nSchutzregeln (ohne Login):\n";
+foreach (['/config.php', '/setup-started.json', '/data.json', '/files.json', '/.devdata/', '/.devdata/data.json', '/uploads/',
           '/uploads/.htaccess', '/dev/', '/dev/router.php', '/.git/HEAD', '/.git/config'] as $p) {
     [$s] = req('GET', $p);
     check("$p → 403", $s === 403, "Status $s");
 }
 // Spelling variants: Windows maps them to the real file, Linux returns 404.
 // Either way they must not be served (no 2xx).
-foreach (['/config.php.', '/CONFIG.PHP', '/Data.JSON'] as $p) {
+foreach (['/config.php.', '/CONFIG.PHP', '/Data.JSON', '/setup.php'] as $p) {
     [$s] = req('GET', $p);
     check("$p wird nicht ausgeliefert", $s < 200 || $s >= 300, "Status $s");
 }
