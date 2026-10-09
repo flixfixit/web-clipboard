@@ -17,7 +17,7 @@ Diese App ist für private, kleine Deployments gedacht. Sie ist kein Mehrbenutze
 - Der PIN ist ein gemeinsames Geheimnis. Wer ihn kennt, sieht alle Einträge und Dateien.
 - Es gibt aktuell kein Rate Limiting für Login-Versuche.
 - Die JSON-Speicherung ist einfach gehalten und nicht für starke Parallelität gedacht.
-- Der PHP-Entwicklungsserver wertet `.htaccess` nicht aus.
+- Der PHP-Entwicklungsserver wertet `.htaccess` nicht aus. Lokal emuliert `dev/router.php` die Regeln; für produktive Server ist das kein Ersatz. `dev/` selbst ist per `dev/.htaccess` gesperrt, und `dev/config.dev.php` enthält nur einen Test-PIN, der nie in einer produktiven `config.php` landen darf.
 
 ## Meldung von Problemen
 

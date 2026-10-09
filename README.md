@@ -64,14 +64,32 @@ Für Nginx muss der Schutz manuell in die Server-Konfiguration übertragen werde
 
 ## Entwicklung
 
-Es gibt keinen Build-Prozess. Sinnvolle Checks vor Änderungen:
+Es gibt keinen Build-Prozess. Für die lokale Entwicklung liegt alles unter `dev/`:
+
+| Datei | Zweck |
+| --- | --- |
+| `dev/serve.ps1` | Startet `php -S 127.0.0.1:8080` mit Router und höheren Upload-Grenzen (5-MB-Chunks brauchen mehr als die PHP-Vorgabe von 2 MB). Legt `.devdata/` und – falls nicht vorhanden – eine `config.php` an, die `dev/config.dev.php` lädt. |
+| `dev/router.php` | Ersetzt lokal die `.htaccess`-Regeln: `config.php`, `*.json`, `uploads/`, `dev/` und Dotfiles liefern 403. |
+| `dev/config.dev.php` | Dev-Konfiguration: Test-PIN `dev-pin-4711` (oder `CLIPBOARD_PIN`), Daten in `.devdata/`. |
+| `dev/smoketest.php` | Automatischer Smoke-Test gegen den laufenden Server (Schutzregeln, Login, Text, Chunked Upload, Download, Löschen, Logout). |
+
+PHP unter Windows installieren und Server starten:
+
+```powershell
+winget install PHP.PHP.8.3
+pwsh -File dev/serve.ps1
+```
+
+In einem zweiten Terminal prüfen:
 
 ```bash
 php -l index.php
-php -S 127.0.0.1:8080
+php dev/smoketest.php
 ```
 
-Teste danach manuell:
+Testdaten zurücksetzen: Server stoppen und `.devdata/` löschen. Der Smoke-Test entfernt nur die Einträge, die er selbst anlegt.
+
+Teste zusätzlich manuell im Browser:
 
 - Login mit richtigem und falschem PIN
 - Text speichern, kopieren, löschen, alle löschen

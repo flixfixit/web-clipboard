@@ -24,6 +24,7 @@ Diese Dateien und Ordnerinhalte sind lokale Laufzeitdaten und dürfen nicht ins 
 ├── .htaccess              # Schutz für JSON-Speicher und config.php
 ├── uploads/
 │   └── .htaccess          # blockiert direkten Zugriff auf Upload-Blobs
+├── dev/                   # lokale Dev-Umgebung (Router, Dev-Config, Startskript, Smoke-Test)
 ├── README.md              # Nutzer- und Deployment-Doku
 ├── SECURITY.md            # Sicherheitsnotizen
 ├── CHANGELOG.md           # Projektänderungen
@@ -65,13 +66,15 @@ Vor Abschluss einer Änderung mindestens ausführen:
 php -l index.php
 ```
 
-Für UI- oder Upload-Änderungen zusätzlich lokal starten:
+Für UI- oder Upload-Änderungen zusätzlich den Dev-Server starten (`pwsh -File dev/serve.ps1`) und den Smoke-Test ausführen:
 
 ```bash
-php -S 127.0.0.1:8080
+php dev/smoketest.php
 ```
 
-Manuell prüfen:
+Der Dev-Server nutzt `dev/router.php` als Ersatz für `.htaccess` und speichert in `.devdata/` (Test-PIN siehe `dev/config.dev.php`). Wenn du Schutzregeln in `.htaccess` änderst, passe `dev/router.php` und die Prüfungen in `dev/smoketest.php` mit an.
+
+Zusätzlich manuell prüfen:
 
 - Login und Logout
 - Text speichern, kopieren und löschen
