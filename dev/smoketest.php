@@ -12,7 +12,7 @@ $cookies = [];
 $failed  = 0;
 
 function req(string $method, string $path, ?array $fields = null, ?array $file = null): array {
-    global $base, $cookies;
+    global $base, $cookies, $lastHeaders;
     $headers = [];
     $body = '';
     if ($file !== null) {
@@ -40,6 +40,7 @@ function req(string $method, string $path, ?array $fields = null, ?array $file =
         exit(2);
     }
     $status = 0;
+    $lastHeaders = $http_response_header;
     foreach ($http_response_header as $h) {
         if (preg_match('#^HTTP/\S+ (\d+)#', $h, $m)) $status = (int)$m[1];
         if (preg_match('#^Set-Cookie:\s*([^=]+)=([^;]*)#i', $h, $m)) {
@@ -53,6 +54,12 @@ function check(string $label, bool $ok, string $detail = ''): void {
     global $failed;
     if (!$ok) $failed++;
     echo ($ok ? '  OK    ' : '  FEHLER ') . $label . ($ok || $detail === '' ? '' : " — $detail") . "\n";
+}
+
+function header_line(string $name): string {
+    global $lastHeaders;
+    foreach ($lastHeaders as $h) if (stripos($h, "$name:") === 0) return trim(substr($h, strlen($name) + 1));
+    return '';
 }
 
 function state(): ?array {
@@ -89,17 +96,36 @@ foreach (['/.gibt-es-nicht', '/dat.json', '/DATA.JSON', '/uploads.x'] as $p) {
     check("$p verrät keine Dateinamen", $s !== 300 && $s !== 301 && !str_contains($body, 'data.json'), "Status $s");
 }
 check('?json=1 liefert ohne Login keine Daten', state() === null);
+req('GET', '/');
+check('CSP verbietet Einbetten und fremde Quellen', str_contains(header_line('Content-Security-Policy'), "frame-ancestors 'none'")
+    && str_contains(header_line('Content-Security-Policy'), "default-src 'self'"));
+check('X-Frame-Options: DENY', header_line('X-Frame-Options') === 'DENY');
+check('X-Content-Type-Options: nosniff', header_line('X-Content-Type-Options') === 'nosniff');
+check('Referrer-Policy: no-referrer', header_line('Referrer-Policy') === 'no-referrer');
 [, $body] = req('POST', '/', ['pin' => 'falsch-' . bin2hex(random_bytes(4))]);
 check('Falscher PIN wird abgelehnt', str_contains($body, 'Falscher PIN') && state() === null);
 
 echo "\nAngemeldet:\n";
 req('POST', '/', ['pin' => $pin]);
+$cookie = header_line('Set-Cookie');
+$appPath = rtrim(parse_url($base, PHP_URL_PATH) ?? '', '/') . '/';
+check('Session-Cookie: HttpOnly, SameSite=Lax, Pfad der App', stripos($cookie, 'HttpOnly') !== false
+    && stripos($cookie, 'SameSite=Lax') !== false && stripos($cookie, "path=$appPath;") !== false
+    && (!str_starts_with($base, 'https:') || stripos($cookie, 'secure') !== false), $cookie);
 $s0 = state();
 check('Login mit PIN', $s0 !== null);
 if ($s0 === null) { echo "\nAbbruch: Login fehlgeschlagen (PIN prüfen).\n"; exit(1); }
 
+[, $page] = req('GET', '/');
+preg_match('#name="csrf" value="([0-9a-f]{64})"#', $page, $m);
+$csrf = $m[1] ?? '';
+check('Seite enthält CSRF-Token', $csrf !== '');
+
 $marker = 'smoketest <b>' . bin2hex(random_bytes(6)) . '</b>';
-req('POST', '/', ['text' => $marker]);
+[$s] = req('POST', '/', ['text' => $marker]);
+check('Text ohne CSRF-Token → 403, nicht gespeichert', $s === 403
+    && !in_array($marker, array_column(state()['texts'], 'text'), true), "Status $s");
+req('POST', '/', ['text' => $marker, 'csrf' => $csrf]);
 $text = null;
 foreach (state()['texts'] as $t) if ($t['text'] === $marker) $text = $t;
 check('Text speichern', $text !== null);
@@ -114,7 +140,7 @@ $fileName = 'smoketest-' . $uploadId . '.bin';
 $total = (int)ceil(strlen($data) / $chunk);
 $ok = true;
 for ($i = 0; $i < $total; $i++) {
-    [$s, $r] = req('POST', '/', ['chunked' => '1', 'uploadId' => $uploadId, 'chunkIndex' => $i,
+    [$s, $r] = req('POST', '/', ['csrf' => $csrf, 'chunked' => '1', 'uploadId' => $uploadId, 'chunkIndex' => $i,
         'totalChunks' => $total, 'fileName' => $fileName], ['field' => 'chunk', 'data' => substr($data, $i * $chunk, $chunk)]);
     $ok = $ok && $s === 200 && (json_decode($r, true)['ok'] ?? false);
 }
@@ -129,13 +155,20 @@ if ($file) {
 [$s] = req('GET', '/?download=gibt-es-nicht');
 check('Download mit unbekannter ID → 404', $s === 404, "Status $s");
 
-if ($text) req('GET', '/?delete=' . urlencode($text['id']));
-if ($file) req('GET', '/?delfile=' . urlencode($file['id']));
+if ($text) {
+    [$s] = req('GET', '/?delete=' . urlencode($text['id']));
+    check('Löschen ohne CSRF-Token → 403, Eintrag bleibt', $s === 403
+        && in_array($marker, array_column(state()['texts'], 'text'), true), "Status $s");
+    req('GET', '/?delete=' . urlencode($text['id']) . '&csrf=' . $csrf);
+}
+if ($file) req('GET', '/?delfile=' . urlencode($file['id']) . '&csrf=' . $csrf);
 $s1 = state();
 check('Text und Datei wieder gelöscht',
     !in_array($marker, array_column($s1['texts'], 'text'), true) && !in_array($fileName, array_column($s1['files'], 'name'), true));
 
-req('GET', '/?logout=1');
+[$s] = req('GET', '/?logout=1');
+check('Abmelden ohne CSRF-Token → 403, Session bleibt', $s === 403 && state() !== null, "Status $s");
+req('GET', '/?logout=1&csrf=' . $csrf);
 check('Logout beendet die Session', state() === null);
 if ($file) {
     [$s, $dl] = req('GET', '/?download=' . urlencode($file['id']));

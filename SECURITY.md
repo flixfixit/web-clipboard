@@ -16,10 +16,17 @@ Diese App ist für private, kleine Deployments gedacht. Sie ist kein Mehrbenutze
 - Begrenze Upload-Größen zusätzlich über Webserver- oder PHP-Konfiguration, wenn die Instanz öffentlich erreichbar ist.
 - Nutze eine eigene Instanz pro Vertrauenskreis. Die App hat keine Rollen oder getrennte Benutzerkonten.
 
+## Eingebaute Schutzmaßnahmen
+
+- **CSRF-Schutz:** Alle verändernden Aktionen (Text speichern, Upload, Löschen, Alle löschen, Abmelden) brauchen ein Token, das an die Sitzung gebunden ist. Fehlt es, antwortet die App mit 403.
+- **Session-Cookie:** `HttpOnly`, `SameSite=Lax`, bei HTTPS `Secure`, Pfad auf das App-Verzeichnis beschränkt; `session.use_strict_mode` ist aktiv. Das Setup vergibt pro Instanz einen eigenen `session_name`.
+- **Header:** Content-Security-Policy (nur eigene Quellen, kein Einbetten in fremde Seiten), `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`.
+- **Login-Bremse:** Nach `login_max_attempts` (Standard 5) Fehlversuchen pro IP ist der Login für `login_lockout_minutes` (Standard 15) gesperrt. Die Zähler liegen gehasht in `login-attempts.json` neben `data.json`.
+
 ## Bekannte Grenzen
 
 - Der PIN ist ein gemeinsames Geheimnis. Wer ihn kennt, sieht alle Einträge und Dateien.
-- Es gibt aktuell kein Rate Limiting für Login-Versuche.
+- Die Login-Bremse zählt Fehlversuche pro Client-IP (`REMOTE_ADDR`). Hinter einem Proxy oder CDN (z. B. Cloudflare), der die echte Client-IP nicht an PHP weitergibt, teilen sich alle Besucher einen Zähler. Dann kann ein Angreifer durch Fehlversuche auch berechtigte Nutzer vorübergehend aussperren.
 - Die JSON-Speicherung ist einfach gehalten und nicht für starke Parallelität gedacht.
 - Der PHP-Entwicklungsserver wertet `.htaccess` nicht aus. Lokal emuliert `dev/router.php` die Regeln; für produktive Server ist das kein Ersatz. `dev/` selbst ist per `dev/.htaccess` gesperrt, und `dev/config.dev.php` enthält nur einen Test-PIN, der nie in einer produktiven `config.php` landen darf.
 
