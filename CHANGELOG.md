@@ -8,6 +8,8 @@
 - `uploads/.htaccess` deaktiviert PHP-Ausführung auch unter `mod_php7`.
 - MIT-Lizenz und `.gitattributes` (LF-Zeilenenden) ergänzt.
 - Lokale Dev-Umgebung unter `dev/`: Startskript, Router als `.htaccess`-Ersatz für `php -S`, Dev-Konfiguration mit Daten in `.devdata/` und Smoke-Test.
+- Lokaler Apache in WSL (`dev/apache.ps1`, `dev/apache/`), der das IONOS-Hosting nachbildet: PHP 8.3 als FastCGI über `mod_fcgid`, `.htaccess` aktiv, IONOS-PHP-Grenzen.
+- `.htaccess` sperrt Dot-Pfade wie `.git/` und `.env` (außer `.well-known/`); vorher war ein mitdeployter `.git`-Ordner abrufbar.
 
 ## 0.1.0 - 2026-10-09
 

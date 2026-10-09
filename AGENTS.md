@@ -25,6 +25,8 @@ Diese Dateien und Ordnerinhalte sind lokale Laufzeitdaten und dürfen nicht ins 
 ├── uploads/
 │   └── .htaccess          # blockiert direkten Zugriff auf Upload-Blobs
 ├── dev/                   # lokale Dev-Umgebung (Router, Dev-Config, Startskript, Smoke-Test)
+│   ├── apache.ps1         # Steuerung des lokalen Apache in WSL
+│   └── apache/            # vHost, Setup-Skript und PHP-Grenzen wie beim IONOS-Hosting
 ├── README.md              # Nutzer- und Deployment-Doku
 ├── SECURITY.md            # Sicherheitsnotizen
 ├── CHANGELOG.md           # Projektänderungen
@@ -73,6 +75,13 @@ php dev/smoketest.php
 ```
 
 Der Dev-Server nutzt `dev/router.php` als Ersatz für `.htaccess` und speichert in `.devdata/` (Test-PIN siehe `dev/config.dev.php`). Wenn du Schutzregeln in `.htaccess` änderst, passe `dev/router.php` und die Prüfungen in `dev/smoketest.php` mit an.
+
+Änderungen an `.htaccess`, Uploads oder PHP-Grenzen zusätzlich gegen den lokalen Apache prüfen, der das Produktiv-Hosting (IONOS, PHP 8.3 als FastCGI) nachbildet:
+
+```bash
+pwsh -File dev/apache.ps1 start
+php dev/smoketest.php http://localhost:8081
+```
 
 Zusätzlich manuell prüfen:
 

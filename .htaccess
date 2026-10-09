@@ -18,3 +18,14 @@
         Deny from all
     </IfModule>
 </Files>
+
+# Block dotfiles and dot-directories (.git, .env, .devdata …), e.g. when the
+# app is deployed with its git checkout. .well-known stays reachable for ACME.
+<IfModule mod_authz_core.c>
+    <If "%{REQUEST_URI} =~ m#/\.(?!well-known/)#">
+        Require all denied
+    </If>
+</IfModule>
+<IfModule !mod_authz_core.c>
+    RedirectMatch 403 "/\.(?!well-known/)"
+</IfModule>
