@@ -9,12 +9,8 @@
 
 Options -Indexes
 
-# Never execute anything in here as a script
-<IfModule mod_php.c>
-    php_flag engine off
-</IfModule>
-<IfModule mod_php7.c>
-    php_flag engine off
-</IfModule>
+# Never execute anything in here as a script. No php_flag here: with PHP as
+# FastCGI (e.g. IONOS) php_flag is an invalid command and the whole folder
+# answers 500 instead of 403.
 RemoveHandler .php .phtml .php3 .php4 .php5 .php7 .phps .cgi .pl .py
 AddType application/octet-stream .php .phtml .phps .cgi .pl .py .html .htm .shtml
