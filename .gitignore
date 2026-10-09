@@ -1,6 +1,7 @@
 config.php
 data.json
 files.json
+setup-started.json
 
 # Ignore uploaded files but keep the protective .htaccess
 uploads/*
