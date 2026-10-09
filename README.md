@@ -8,7 +8,7 @@ Eine kleine, eigenständige PHP-Clipboard-Webapp für private Textschnipsel und 
 - Text-Clipboard mit Kopieren, Löschen und automatischem Refresh
 - Datei-Uploads mit Drag & Drop, Fortschrittsanzeige und Chunked Uploads
 - Automatisches Löschen hochgeladener Dateien nach konfigurierbarer TTL
-- Direkter Zugriff auf JSON-Speicher und Upload-Blobs per Apache-Regeln blockiert
+- Direkter Zugriff auf JSON-Speicher, Upload-Blobs und Dot-Pfade (`.git`, `.env` …) per Apache-Regeln blockiert
 
 ## Voraussetzungen
 
@@ -72,6 +72,7 @@ Es gibt keinen Build-Prozess. Für die lokale Entwicklung liegt alles unter `dev
 | `dev/router.php` | Ersetzt lokal die `.htaccess`-Regeln: `config.php`, `*.json`, `uploads/`, `dev/` und Dotfiles liefern 403. |
 | `dev/config.dev.php` | Dev-Konfiguration: Test-PIN `dev-pin-4711` (oder `CLIPBOARD_PIN`), Daten in `.devdata/`. |
 | `dev/smoketest.php` | Automatischer Smoke-Test gegen den laufenden Server (Schutzregeln, Login, Text, Chunked Upload, Download, Löschen, Logout). |
+| `dev/apache.ps1`, `dev/apache/` | Lokaler Apache in WSL, der das IONOS-Webhosting nachbildet (siehe unten). |
 
 PHP unter Windows installieren und Server starten:
 
@@ -88,6 +89,21 @@ php dev/smoketest.php
 ```
 
 Testdaten zurücksetzen: Server stoppen und `.devdata/` löschen. Der Smoke-Test entfernt nur die Einträge, die er selbst anlegt.
+
+### Apache wie bei IONOS (WSL)
+
+`php -S` ignoriert `.htaccess`. Um die echten Schutzregeln zu prüfen, gibt es einen lokalen Apache in WSL (Ubuntu 24.04), der das IONOS-Webhosting nachbildet: Apache 2.4, PHP 8.3 als FastCGI (`php-cgi` über `mod_fcgid`, „Server API: cgi-fcgi“), `AllowOverride All` und die IONOS-PHP-Grenzen aus `dev/apache/php.d/99-ionos.ini`. Er nutzt dieselbe `config.php` und `.devdata/` wie der Dev-Server und läuft auf Port 8081.
+
+```powershell
+pwsh -File dev/apache.ps1 setup    # einmalig: Pakete installieren, vHost einrichten
+pwsh -File dev/apache.ps1 start    # weitere Aktionen: stop, restart, status, log
+php dev/smoketest.php http://localhost:8081
+```
+
+Hinweise:
+
+- Das Projekt liegt für Apache unter `/mnt/c/...`. Dieses Dateisystem unterscheidet keine Groß-/Kleinschreibung, IONOS schon. Abweichungen bei Schreibvarianten wie `/CONFIG.PHP` sind daher lokal möglich.
+- `mod_php` bleibt bewusst deaktiviert: Bei IONOS greifen `php_flag`-Direktiven in `.htaccess` nicht.
 
 Teste zusätzlich manuell im Browser:
 

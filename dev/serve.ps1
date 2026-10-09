@@ -16,6 +16,8 @@ if (-not $php) {
 if (-not $php) { throw 'PHP nicht gefunden. Installieren mit: winget install PHP.PHP.8.3' }
 
 New-Item -ItemType Directory -Force (Join-Path $root '.devdata/uploads') | Out-Null
+# Keeps blobs protected when the same data is served by the local Apache (dev/apache.ps1)
+Copy-Item (Join-Path $root 'uploads/.htaccess') (Join-Path $root '.devdata/uploads/.htaccess') -Force
 
 $configFile = Join-Path $root 'config.php'
 if (-not (Test-Path $configFile)) {
