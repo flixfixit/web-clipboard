@@ -1,0 +1,24 @@
+# Security
+
+Diese App ist für private, kleine Deployments gedacht. Sie ist kein Mehrbenutzer-System und ersetzt keine gehärtete Dateiablage.
+
+## Empfehlungen für produktiven Betrieb
+
+- Setze in `config.php` einen langen, nicht erratbaren PIN.
+- Betreibe die App nur über HTTPS.
+- Committe niemals `config.php`, `data.json`, `files.json` oder Upload-Inhalte.
+- Prüfe, dass `.htaccess` aktiv ist und direkte Requests auf `data.json`, `files.json`, `config.php` und Dateien unter `uploads/` blockiert.
+- Lege `data_file`, `files_file` und `upload_dir` nach Möglichkeit außerhalb des öffentlichen Webroots ab.
+- Begrenze Upload-Größen zusätzlich über Webserver- oder PHP-Konfiguration, wenn die Instanz öffentlich erreichbar ist.
+- Nutze eine eigene Instanz pro Vertrauenskreis. Die App hat keine Rollen oder getrennte Benutzerkonten.
+
+## Bekannte Grenzen
+
+- Der PIN ist ein gemeinsames Geheimnis. Wer ihn kennt, sieht alle Einträge und Dateien.
+- Es gibt aktuell kein Rate Limiting für Login-Versuche.
+- Die JSON-Speicherung ist einfach gehalten und nicht für starke Parallelität gedacht.
+- Der PHP-Entwicklungsserver wertet `.htaccess` nicht aus.
+
+## Meldung von Problemen
+
+Falls dieses Projekt in einem öffentlichen Repository liegt, melde Sicherheitsprobleme bitte zunächst privat an die Maintainer statt direkt als öffentliches Issue.

@@ -1,0 +1,7 @@
+config.php
+data.json
+files.json
+
+# Ignore uploaded files but keep the protective .htaccess
+uploads/*
+!uploads/.htaccess
