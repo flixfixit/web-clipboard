@@ -5,3 +5,6 @@ files.json
 # Ignore uploaded files but keep the protective .htaccess
 uploads/*
 !uploads/.htaccess
+
+# Local dev server data (dev/config.dev.php)
+.devdata/

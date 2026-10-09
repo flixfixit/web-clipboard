@@ -7,6 +7,7 @@
 - `config.example.php` übernimmt `CLIPBOARD_PIN` aus der Umgebung.
 - `uploads/.htaccess` deaktiviert PHP-Ausführung auch unter `mod_php7`.
 - MIT-Lizenz und `.gitattributes` (LF-Zeilenenden) ergänzt.
+- Lokale Dev-Umgebung unter `dev/`: Startskript, Router als `.htaccess`-Ersatz für `php -S`, Dev-Konfiguration mit Daten in `.devdata/` und Smoke-Test.
 
 ## 0.1.0 - 2026-10-09
 
