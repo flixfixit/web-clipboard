@@ -4,6 +4,9 @@
 
 - Automatisches Deployment: Jeder Push auf `main` wird nach den Prüfungen per SFTP ausgerollt (`.github/workflows/deploy.yml`, GitHub-Environment `production`). Laufzeitdaten auf dem Server bleiben unangetastet, der Host-Key des Servers ist gepinnt.
 - `dev/livecheck.sh` prüft eine Live-Instanz von außen (Header, Cookie, gesperrte Pfade, kein offenes Setup) und läuft nach jedem Deployment.
+- Alle Deploy-Einstellungen (Ziel-URL, Pfad, Host-Key) liegen als Secrets im Environment; in den öffentlichen Actions-Logs erscheinen sie nur als `***`, ein öffentlicher Deployment-Link entfällt.
+- GitHub Actions nutzen `actions/checkout@v5` (Node.js 24).
+
 ## 1.0.0 - 2026-10-12
 
 - Release-ZIP per `git archive`: nur Laufzeitdateien (`export-ignore` für Doku, `dev/` und Git-Dateien), Version wird in `index.php` eingetragen und in der App angezeigt.
