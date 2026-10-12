@@ -28,6 +28,9 @@ Diese Dateien und Ordnerinhalte sind lokale Laufzeitdaten und dürfen nicht ins 
 ├── dev/                   # lokale Dev-Umgebung (Router, Dev-Config, Startskript, Smoke-Test)
 │   ├── apache.ps1         # Steuerung des lokalen Apache in WSL
 │   └── apache/            # vHost, Setup-Skript und PHP-Grenzen wie beim IONOS-Hosting
+│   ├── build-release.ps1  # Release-ZIP lokal bauen (git archive)
+│   └── release.ps1        # Release vorbereiten: CHANGELOG, Commit, Tag
+├── .github/workflows/     # CI (ci.yml) und Release beim Tag v* (release.yml)
 ├── README.md              # Nutzer- und Deployment-Doku
 ├── SECURITY.md            # Sicherheitsnotizen
 ├── CHANGELOG.md           # Projektänderungen
@@ -50,6 +53,7 @@ Diese Dateien und Ordnerinhalte sind lokale Laufzeitdaten und dürfen nicht ins 
 - Jede neue verändernde Aktion muss im CSRF-Block von `index.php` erfasst sein (`$changesState`). POST ist automatisch abgedeckt, GET-Aktionen müssen dort ergänzt werden, und Links/Formulare müssen `csrf` mitsenden.
 - Upload-Blobs dürfen nie direkt öffentlich verlinkt oder anhand ihres Dateinamens ausgeliefert werden.
 - `config.php`, JSON-Daten und Upload-Inhalte bleiben aus Git ausgeschlossen.
+- Das Release-ZIP enthält nur Laufzeitdateien. Neue Dateien, die nicht auf den Webserver gehören, bekommen eine `export-ignore`-Zeile in `.gitattributes`; neue Laufzeitdateien werden in der Liste im CI-Schritt „Inhalt des Release-ZIPs prüfen“ ergänzt.
 - UI-Texte sind aktuell Deutsch; neue sichtbare Texte bitte ebenfalls Deutsch halten.
 - Keine Datenbank oder Build-Toolchain hinzufügen, wenn die Aufgabe nicht ausdrücklich danach verlangt.
 - Bei Sicherheitsänderungen immer README und SECURITY prüfen und aktualisieren.

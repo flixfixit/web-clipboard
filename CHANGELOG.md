@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Release-ZIP per `git archive`: nur Laufzeitdateien (`export-ignore` für Doku, `dev/` und Git-Dateien), Version wird in `index.php` eingetragen und in der App angezeigt.
+- `dev/build-release.ps1` baut das ZIP lokal, `dev/release.ps1` bereitet ein Release vor (CHANGELOG, Commit, Tag).
+- GitHub Actions: CI bei Pull Requests und auf `main` (PHP-Syntax, Release-Inhalt, Smoke-Test gegen `php -S` und Apache wie bei IONOS); beim Tag `v*` wird ein GitHub-Release mit ZIP angelegt.
 - CSRF-Schutz für alle verändernden Aktionen (Speichern, Upload, Löschen, Alle löschen, Abmelden).
 - Session-Cookie mit `HttpOnly`, `SameSite=Lax`, `Secure` (bei HTTPS) und Pfad auf das App-Verzeichnis; `session.use_strict_mode` aktiv. Das Setup vergibt einen eindeutigen `session_name` pro Instanz.
 - Sicherheits-Header: Content-Security-Policy, `X-Frame-Options`, `X-Content-Type-Options`, `Referrer-Policy`.

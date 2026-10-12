@@ -30,7 +30,7 @@ Wichtig: Der PHP-Entwicklungsserver wertet `.htaccess` nicht aus. Nutze ihn nur 
 
 ## Einrichtung im Browser
 
-1. Den Inhalt des Repositorys in einen Ordner des Webservers kopieren (`config.php` gehört nicht dazu).
+1. Das Release-ZIP `clipboard-vX.Y.Z.zip` von der [Releases-Seite](https://github.com/flixfixit/web-clipboard/releases) herunterladen, entpacken und den Ordner `clipboard/` auf den Webserver hochladen (inklusive der `.htaccess`-Dateien). Alternativ den Inhalt des Repositorys kopieren (`config.php` gehört nicht dazu).
 2. Die App im Browser aufrufen. Ohne `config.php` erscheint statt des Logins das Setup.
 3. Passwort (mindestens 8 Zeichen), Lebensdauer der Dateien, maximale Anzahl Text-Einträge und Löschbestätigung festlegen.
 
@@ -135,6 +135,27 @@ Teste zusätzlich manuell im Browser:
 - Datei hochladen, herunterladen, löschen
 - großer Upload, damit der Chunked-Upload-Pfad ausgeführt wird
 - JSON-Refresh über `?json=1` im angemeldeten Zustand
+
+## Release
+
+Ein Release ist ein ZIP mit genau den Dateien, die auf dem Webserver gebraucht werden: `index.php`, `setup.php`, `config.example.php`, `.htaccess`, `uploads/.htaccess` und `LICENSE`. Doku, `dev/` und Git-Dateien sind per `export-ignore` in `.gitattributes` ausgeschlossen; Laufzeitdaten wie `config.php` können nicht hineingeraten, weil das ZIP mit `git archive` aus dem committeten Stand entsteht. Die Version wird dabei in `index.php` eingetragen (`export-subst`) und unten in der App angezeigt; ein normaler Checkout zeigt `dev`.
+
+Release veröffentlichen:
+
+```powershell
+git checkout main
+git pull
+pwsh -File dev/release.ps1 -Version 1.0.0   # CHANGELOG-Abschnitt, Commit und Tag v1.0.0 (lokal)
+git push origin main v1.0.0                 # startet den Release-Workflow
+```
+
+Der Workflow `.github/workflows/release.yml` führt dieselben Prüfungen wie die CI aus, baut `clipboard-v1.0.0.zip` und legt ein GitHub-Release mit Installationshinweisen und dem CHANGELOG-Abschnitt an.
+
+Lokal bauen (z. B. zum Testen): `pwsh -File dev/build-release.ps1` legt das ZIP in `dist/` ab.
+
+### CI
+
+`.github/workflows/ci.yml` läuft bei jedem Pull Request und Push auf `main`: PHP-Syntax, Inhalt des Release-ZIPs, Smoke-Test gegen `php -S` mit Dev-Router und gegen Apache mit PHP als FastCGI wie bei IONOS.
 
 ## Repository-Hinweise
 
