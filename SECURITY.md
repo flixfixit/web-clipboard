@@ -25,7 +25,7 @@ Diese App ist für private, kleine Deployments gedacht. Sie ist kein Mehrbenutze
 
 ## Automatisches Deployment
 
-- Die SFTP-Zugangsdaten liegen als Secrets im GitHub-Environment `production`. Das Environment nur für `main` freigeben; Pull Requests aus Forks erhalten keine Secrets.
+- Zugangsdaten, Zielpfad, URL und Host-Key liegen als Secrets im GitHub-Environment `production`. Logs öffentlicher Repositorys sind öffentlich und zeigen Variablen im Klartext, Secrets nur als `***`. Das Environment nur für `main` freigeben; Pull Requests aus Forks erhalten keine Secrets.
 - Für das Deployment einen eigenen SFTP-Benutzer verwenden, der möglichst nur auf den App-Ordner zugreifen kann. Bei Verdacht auf Missbrauch diesen Benutzer im Hosting-Panel sperren und das Passwort im Environment erneuern.
 - `SFTP_KNOWN_HOSTS` pinnt den Host-Key des Servers. Ändert IONOS den Schlüssel, schlägt das Deployment fehl, bis der neue Eintrag hinterlegt ist.
 - Jeder Push auf `main` geht live. Wer Schreibrechte am Repository hat, kann damit Code auf den Server bringen.

@@ -97,15 +97,13 @@ Einrichtung (einmalig, unter *Settings → Environments*):
    | `SFTP_HOST` | SFTP-Server, z. B. `access-123456789.webspace-host.com` |
    | `SFTP_USER` | eigener SFTP-Benutzer für das Deployment |
    | `SFTP_PASSWORD` | Passwort dieses Benutzers |
-
-3. Unter *Environment variables* anlegen:
-
-   | Variable | Inhalt |
-   | --- | --- |
-   | `DEPLOY_PATH` | Zielordner relativ zum Start-Verzeichnis des SFTP-Benutzers, z. B. `web/clipboard` oder `.` |
+   | `DEPLOY_PATH` | Zielordner relativ zum Start-Verzeichnis des SFTP-Benutzers, z. B. `clipboard` oder `.` |
    | `DEPLOY_URL` | öffentliche URL der Instanz, z. B. `https://example.org/clipboard` |
    | `SFTP_KNOWN_HOSTS` | Host-Key des Servers, Ausgabe von `ssh-keyscan -t ed25519 <SFTP_HOST>` |
-   | `SFTP_PORT` | optional, Standard `22` |
+
+3. Optional unter *Environment variables*: `SFTP_PORT` (Standard `22`).
+
+Logs von GitHub Actions sind bei öffentlichen Repositorys für alle lesbar. Werte aus Secrets erscheinen dort nur als `***`, Variablen dagegen im Klartext; deshalb liegen alle Deploy-Einstellungen in Secrets.
 
 Solange etwas fehlt, überspringt der Workflow das Hochladen mit einer Warnung. `SFTP_KNOWN_HOSTS` sorgt dafür, dass die Zugangsdaten nur an den echten Server gehen; bei einem anderen Host-Key bricht der Upload ab.
 

@@ -23,17 +23,18 @@ jobs:
     name: Per SFTP ausrollen
     needs: checks
     runs-on: ubuntu-24.04
-    environment:
-      name: production
-      url: ${{ vars.DEPLOY_URL }}
+    # No environment url: it would be shown publicly on every run and under
+    # Deployments. All settings are secrets because the logs of a public repo
+    # are public and print variables in plain text (secrets show as ***).
+    environment: production
     env:
       SFTP_HOST: ${{ secrets.SFTP_HOST }}
       SFTP_PORT: ${{ vars.SFTP_PORT || '22' }}
       SFTP_USER: ${{ secrets.SFTP_USER }}
       LFTP_PASSWORD: ${{ secrets.SFTP_PASSWORD }}
-      SFTP_KNOWN_HOSTS: ${{ vars.SFTP_KNOWN_HOSTS }}
-      DEPLOY_PATH: ${{ vars.DEPLOY_PATH }}
-      DEPLOY_URL: ${{ vars.DEPLOY_URL }}
+      SFTP_KNOWN_HOSTS: ${{ secrets.SFTP_KNOWN_HOSTS }}
+      DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+      DEPLOY_URL: ${{ secrets.DEPLOY_URL }}
     steps:
       - name: Konfiguration prüfen
         id: config
