@@ -183,6 +183,8 @@ Lokal bauen (z. B. zum Testen): `pwsh -File dev/build-release.ps1` legt das ZIP 
 
 ### CI
 
+Jeder Pull Request, der mehr als Dokumentation ändert, braucht einen Eintrag unter „## Unreleased“ in `CHANGELOG.md`, weil jeder Merge sofort live geht. `.github/workflows/changelog.yml` prüft das; für Tippfehler oder reine Doku-Korrekturen das Label `kein-changelog` setzen. Lokal vorab prüfen: `bash dev/check-changelog.sh origin/main HEAD`. Beim Release macht `dev/release.ps1` aus „Unreleased“ den Versionsabschnitt.
+
 `.github/workflows/ci.yml` läuft bei jedem Pull Request sowie als erster Schritt von Deployment und Release: PHP-Syntax, Inhalt des Release-ZIPs, Smoke-Test gegen `php -S` mit Dev-Router und gegen Apache mit PHP als FastCGI wie bei IONOS.
 
 ## Repository-Hinweise

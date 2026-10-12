@@ -29,9 +29,10 @@ Diese Dateien und Ordnerinhalte sind lokale Laufzeitdaten und dürfen nicht ins 
 │   ├── apache.ps1         # Steuerung des lokalen Apache in WSL
 │   └── apache/            # vHost, Setup-Skript und PHP-Grenzen wie beim IONOS-Hosting
 │   ├── livecheck.sh       # Prüfung einer Live-Instanz von außen (nach jedem Deployment)
+│   ├── check-changelog.sh # prüft, ob ein PR einen CHANGELOG-Eintrag unter „Unreleased“ hat
 │   ├── build-release.ps1  # Release-ZIP lokal bauen (git archive)
 │   └── release.ps1        # Release vorbereiten: CHANGELOG, Commit, Tag
-├── .github/workflows/     # CI (ci.yml), Deployment bei Push auf main (deploy.yml), Release beim Tag v* (release.yml)
+├── .github/workflows/     # CI (ci.yml), CHANGELOG-Prüfung (changelog.yml), Deployment bei Push auf main (deploy.yml), Release beim Tag v* (release.yml)
 ├── README.md              # Nutzer- und Deployment-Doku
 ├── SECURITY.md            # Sicherheitsnotizen
 ├── CHANGELOG.md           # Projektänderungen
@@ -55,6 +56,7 @@ Diese Dateien und Ordnerinhalte sind lokale Laufzeitdaten und dürfen nicht ins 
 - Upload-Blobs dürfen nie direkt öffentlich verlinkt oder anhand ihres Dateinamens ausgeliefert werden.
 - `config.php`, JSON-Daten und Upload-Inhalte bleiben aus Git ausgeschlossen.
 - Das Release-ZIP enthält nur Laufzeitdateien. Neue Dateien, die nicht auf den Webserver gehören, bekommen eine `export-ignore`-Zeile in `.gitattributes`; neue Laufzeitdateien werden in der Liste im CI-Schritt „Inhalt des Release-ZIPs prüfen“ ergänzt.
+- Jeder PR, der mehr als Doku ändert, bekommt eine Zeile unter „## Unreleased“ in `CHANGELOG.md`, die beschreibt, was live geht. `.github/workflows/changelog.yml` (Skript `dev/check-changelog.sh`) prüft das; Ausnahme nur per Label `kein-changelog` für Tippfehler oder reine Doku-Korrekturen.
 - Jeder Merge auf `main` wird automatisch per SFTP ausgerollt. `main` muss also immer ein deploybarer Stand sein. Das Deployment lädt nur das Release-Paket hoch und löscht nie etwas auf dem Server (`mirror` ohne `--delete`); daran nichts ändern, sonst gehen Laufzeitdaten verloren.
 - UI-Texte sind aktuell Deutsch; neue sichtbare Texte bitte ebenfalls Deutsch halten.
 - Keine Datenbank oder Build-Toolchain hinzufügen, wenn die Aufgabe nicht ausdrücklich danach verlangt.
