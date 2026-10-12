@@ -1,0 +1,69 @@
+name: Checks
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  php-server:
+    name: PHP-Server mit Dev-Router
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: PHP-Syntax prüfen
+        run: for f in index.php setup.php config.example.php dev/*.php; do php -l "$f"; done
+
+      # Only these files may end up in the release ZIP. A new file in the repo
+      # needs either an export-ignore line in .gitattributes or an entry here.
+      - name: Inhalt des Release-ZIPs prüfen
+        run: |
+          git archive --prefix=clipboard/ HEAD | tar -t | grep -v '/$' | sort > /tmp/release-files
+          printf '%s\n' clipboard/.htaccess clipboard/LICENSE clipboard/config.example.php \
+            clipboard/index.php clipboard/setup.php clipboard/uploads/.htaccess | sort > /tmp/expected
+          diff -u /tmp/expected /tmp/release-files
+
+      - name: Dev-Server starten
+        run: |
+          mkdir -p .devdata/uploads
+          cp uploads/.htaccess .devdata/uploads/.htaccess
+          printf "<?php\nreturn require __DIR__ . '/dev/config.dev.php';\n" > config.php
+          php -d upload_max_filesize=16M -d post_max_size=20M \
+            -S 127.0.0.1:8080 -t . dev/router.php > /tmp/php-server.log 2>&1 &
+          sleep 1
+
+      - name: Smoke-Test
+        run: php dev/smoketest.php http://127.0.0.1:8080
+
+      - name: Server-Log bei Fehler
+        if: failure()
+        run: tail -n 50 /tmp/php-server.log
+
+  apache:
+    name: Apache wie IONOS (FastCGI, .htaccess)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Apache einrichten
+        run: |
+          mkdir -p .devdata/uploads
+          cp uploads/.htaccess .devdata/uploads/.htaccess
+          printf "<?php\nreturn require __DIR__ . '/dev/config.dev.php';\n" > config.php
+          # Apache (www-data) must reach the checkout and write the dev data
+          d="$GITHUB_WORKSPACE"
+          while [ "$d" != "/" ]; do sudo chmod o+x "$d"; d="$(dirname "$d")"; done
+          chmod -R a+rwX .devdata
+          sudo bash dev/apache/setup.sh
+
+      - name: Smoke-Test
+        run: php dev/smoketest.php http://localhost:8081
+
+      - name: Apache-Log bei Fehler
+        if: failure()
+        run: sudo tail -n 50 /var/log/apache2/clipboard-dev-error.log

@@ -1,0 +1,53 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  checks:
+    uses: ./.github/workflows/ci.yml
+
+  release:
+    name: ZIP bauen und Release anlegen
+    needs: checks
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # git describe needs the tags
+
+      - name: ZIP bauen
+        run: |
+          zip="clipboard-${GITHUB_REF_NAME}.zip"
+          git archive --format=zip --prefix=clipboard/ -o "$zip" "$GITHUB_REF_NAME"
+          unzip -l "$zip"
+          # export-subst must have written the version into index.php
+          unzip -p "$zip" clipboard/index.php | grep -q "appVersion = '${GITHUB_REF_NAME}'"
+          echo "ZIP=$zip" >> "$GITHUB_ENV"
+
+      - name: Release-Notes zusammenstellen
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          awk -v v="$version" '$0 ~ "^## " v "( |$)" { found = 1; next } /^## / { found = 0 } found' CHANGELOG.md > changes.md
+          {
+            echo "## Installation"
+            echo
+            echo "1. \`${ZIP}\` herunterladen und entpacken."
+            echo "2. Den Ordner \`clipboard/\` auf den Webspace hochladen (inklusive der \`.htaccess\`-Dateien)."
+            echo "3. Die App im Browser aufrufen und das Setup innerhalb von 30 Minuten abschließen."
+            echo
+            echo "**Update:** Den Inhalt von \`clipboard/\` über die bestehende Installation kopieren. \`config.php\`, die Daten und \`uploads/\` bleiben erhalten."
+            echo
+            echo "## Änderungen"
+            if [ -s changes.md ]; then cat changes.md; else echo "Siehe CHANGELOG.md."; fi
+          } > notes.md
+          cat notes.md
+
+      - name: Release anlegen
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" "$ZIP" --title "Clipboard $GITHUB_REF_NAME" --notes-file notes.md --verify-tag
