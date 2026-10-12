@@ -1,0 +1,26 @@
+name: Changelog
+
+# Every pull request that changes more than documentation must add an entry
+# under "## Unreleased" in CHANGELOG.md, because every merge goes live.
+# Exception: label "kein-changelog" (typos, pure doc fixes).
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+
+permissions:
+  contents: read
+
+jobs:
+  changelog:
+    name: CHANGELOG ergänzt
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Prüfen
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          SKIP: ${{ contains(github.event.pull_request.labels.*.name, 'kein-changelog') }}
+        run: bash dev/check-changelog.sh "$BASE_SHA" HEAD

@@ -6,6 +6,7 @@
 - `dev/livecheck.sh` prüft eine Live-Instanz von außen (Header, Cookie, gesperrte Pfade, kein offenes Setup) und läuft nach jedem Deployment.
 - Alle Deploy-Einstellungen (Ziel-URL, Pfad, Host-Key) liegen als Secrets im Environment; in den öffentlichen Actions-Logs erscheinen sie nur als `***`, ein öffentlicher Deployment-Link entfällt.
 - GitHub Actions nutzen `actions/checkout@v5` (Node.js 24).
+- Pull Requests brauchen einen CHANGELOG-Eintrag unter „Unreleased“ (`.github/workflows/changelog.yml`, Ausnahme per Label `kein-changelog`); dazu eine PR-Vorlage mit Checkliste.
 
 ## 1.0.0 - 2026-10-12
 
