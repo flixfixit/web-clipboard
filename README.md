@@ -83,6 +83,36 @@ chmod 775 uploads
 
 Für Nginx muss der Schutz manuell in die Server-Konfiguration übertragen werden, weil `.htaccess` dort nicht gilt.
 
+### Automatisches Deployment per SFTP
+
+`.github/workflows/deploy.yml` rollt jeden Push auf `main` aus: erst die Prüfungen aus `ci.yml`, dann das Paket mit demselben Inhalt wie das Release-ZIP bauen, per SFTP hochladen (`lftp mirror` ohne Löschen) und die Live-Instanz mit `dev/livecheck.sh` von außen prüfen. `config.php`, `data.json`, `files.json`, `login-attempts.json` und der Inhalt von `uploads/` auf dem Server werden nie überschrieben oder gelöscht. Über *Actions → Deploy → Run workflow* lässt sich ein Deployment auch von Hand starten.
+
+Einrichtung (einmalig, unter *Settings → Environments*):
+
+1. Environment `production` anlegen. Unter *Deployment branches and tags* „Selected branches and tags“ wählen und nur `main` erlauben. Optional *Required reviewers* setzen, dann wartet jedes Deployment auf eine Bestätigung.
+2. Unter *Environment secrets* anlegen:
+
+   | Secret | Inhalt |
+   | --- | --- |
+   | `SFTP_HOST` | SFTP-Server, z. B. `access-123456789.webspace-host.com` |
+   | `SFTP_USER` | eigener SFTP-Benutzer für das Deployment |
+   | `SFTP_PASSWORD` | Passwort dieses Benutzers |
+
+3. Unter *Environment variables* anlegen:
+
+   | Variable | Inhalt |
+   | --- | --- |
+   | `DEPLOY_PATH` | Zielordner relativ zum Start-Verzeichnis des SFTP-Benutzers, z. B. `web/clipboard` oder `.` |
+   | `DEPLOY_URL` | öffentliche URL der Instanz, z. B. `https://deshalb.net/web/clipboard` |
+   | `SFTP_KNOWN_HOSTS` | Host-Key des Servers, Ausgabe von `ssh-keyscan -t ed25519 <SFTP_HOST>` |
+   | `SFTP_PORT` | optional, Standard `22` |
+
+Solange etwas fehlt, überspringt der Workflow das Hochladen mit einer Warnung. `SFTP_KNOWN_HOSTS` sorgt dafür, dass die Zugangsdaten nur an den echten Server gehen; bei einem anderen Host-Key bricht der Upload ab.
+
+Liegt im Zielordner noch keine `config.php`, öffnet das erste Deployment das Setup. Der Live-Check meldet das als Fehler; dann die App sofort im Browser einrichten.
+
+Den Live-Check gibt es auch lokal: `bash dev/livecheck.sh https://deshalb.net/web/clipboard`.
+
 ## Entwicklung
 
 Es gibt keinen Build-Prozess. Für die lokale Entwicklung liegt alles unter `dev/`:
@@ -155,7 +185,7 @@ Lokal bauen (z. B. zum Testen): `pwsh -File dev/build-release.ps1` legt das ZIP 
 
 ### CI
 
-`.github/workflows/ci.yml` läuft bei jedem Pull Request und Push auf `main`: PHP-Syntax, Inhalt des Release-ZIPs, Smoke-Test gegen `php -S` mit Dev-Router und gegen Apache mit PHP als FastCGI wie bei IONOS.
+`.github/workflows/ci.yml` läuft bei jedem Pull Request sowie als erster Schritt von Deployment und Release: PHP-Syntax, Inhalt des Release-ZIPs, Smoke-Test gegen `php -S` mit Dev-Router und gegen Apache mit PHP als FastCGI wie bei IONOS.
 
 ## Repository-Hinweise
 

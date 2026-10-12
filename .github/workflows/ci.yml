@@ -1,9 +1,9 @@
 name: Checks
 
+# Pull requests run these checks directly; pushes to main run them as the first
+# job of deploy.yml, release tags as the first job of release.yml.
 on:
   pull_request:
-  push:
-    branches: [main]
   workflow_call:
 
 permissions:

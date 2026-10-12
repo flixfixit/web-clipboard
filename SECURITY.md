@@ -23,6 +23,13 @@ Diese App ist für private, kleine Deployments gedacht. Sie ist kein Mehrbenutze
 - **Header:** Content-Security-Policy (nur eigene Quellen, kein Einbetten in fremde Seiten), `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`.
 - **Login-Bremse:** Nach `login_max_attempts` (Standard 5) Fehlversuchen pro IP ist der Login für `login_lockout_minutes` (Standard 15) gesperrt. Die Zähler liegen gehasht in `login-attempts.json` neben `data.json`.
 
+## Automatisches Deployment
+
+- Die SFTP-Zugangsdaten liegen als Secrets im GitHub-Environment `production`. Das Environment nur für `main` freigeben; Pull Requests aus Forks erhalten keine Secrets.
+- Für das Deployment einen eigenen SFTP-Benutzer verwenden, der möglichst nur auf den App-Ordner zugreifen kann. Bei Verdacht auf Missbrauch diesen Benutzer im Hosting-Panel sperren und das Passwort im Environment erneuern.
+- `SFTP_KNOWN_HOSTS` pinnt den Host-Key des Servers. Ändert IONOS den Schlüssel, schlägt das Deployment fehl, bis der neue Eintrag hinterlegt ist.
+- Jeder Push auf `main` geht live. Wer Schreibrechte am Repository hat, kann damit Code auf den Server bringen.
+
 ## Bekannte Grenzen
 
 - Der PIN ist ein gemeinsames Geheimnis. Wer ihn kennt, sieht alle Einträge und Dateien.
