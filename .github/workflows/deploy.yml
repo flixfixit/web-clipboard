@@ -1,0 +1,86 @@
+name: Deploy
+
+# Every push to main is checked and then rolled out via SFTP. Credentials live
+# in the "production" environment (Settings → Environments), which only main
+# may use; pull requests from forks never get them. See README, "Deployment".
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  checks:
+    uses: ./.github/workflows/ci.yml
+
+  deploy:
+    name: Per SFTP ausrollen
+    needs: checks
+    runs-on: ubuntu-24.04
+    environment:
+      name: production
+      url: ${{ vars.DEPLOY_URL }}
+    env:
+      SFTP_HOST: ${{ secrets.SFTP_HOST }}
+      SFTP_PORT: ${{ vars.SFTP_PORT || '22' }}
+      SFTP_USER: ${{ secrets.SFTP_USER }}
+      LFTP_PASSWORD: ${{ secrets.SFTP_PASSWORD }}
+      SFTP_KNOWN_HOSTS: ${{ vars.SFTP_KNOWN_HOSTS }}
+      DEPLOY_PATH: ${{ vars.DEPLOY_PATH }}
+      DEPLOY_URL: ${{ vars.DEPLOY_URL }}
+    steps:
+      - name: Konfiguration prüfen
+        id: config
+        run: |
+          missing=""
+          for v in SFTP_HOST SFTP_USER LFTP_PASSWORD SFTP_KNOWN_HOSTS DEPLOY_PATH DEPLOY_URL; do
+            [ -n "${!v}" ] || missing="$missing $v"
+          done
+          if [ -n "$missing" ]; then
+            echo "::warning::Deployment übersprungen, im Environment 'production' fehlt:$missing (siehe README, Abschnitt Deployment)."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v4
+        if: steps.config.outputs.ready == 'true'
+        with:
+          fetch-depth: 0   # git describe for the version shown in the app
+
+      - name: Paket bauen
+        if: steps.config.outputs.ready == 'true'
+        run: |
+          # Same content as the release ZIP (export-ignore/export-subst in .gitattributes)
+          mkdir -p build
+          git archive --prefix=clipboard/ HEAD | tar -x -C build
+          find build -type f | sort
+          grep -o "appVersion = '[^']*'" build/clipboard/index.php
+
+      - name: Hochladen
+        if: steps.config.outputs.ready == 'true'
+        run: |
+          sudo apt-get install -y -qq lftp > /dev/null
+          mkdir -p ~/.ssh
+          printf '%s\n' "$SFTP_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          # mirror -R without --delete: only the app files are uploaded; config.php,
+          # data files and uploads/ content on the server are never touched
+          lftp -e "
+            set cmd:fail-exit yes;
+            set net:max-retries 2;
+            set net:timeout 30;
+            set sftp:connect-program 'ssh -a -x -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$HOME/.ssh/known_hosts';
+            open --env-password -u '$SFTP_USER' -p '$SFTP_PORT' 'sftp://$SFTP_HOST';
+            cd '$DEPLOY_PATH';
+            mirror --reverse --overwrite --verbose --no-perms build/clipboard .;
+            bye"
+
+      - name: Live-Check
+        if: steps.config.outputs.ready == 'true'
+        run: bash dev/livecheck.sh "$DEPLOY_URL"
