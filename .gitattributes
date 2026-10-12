@@ -1,1 +1,15 @@
 * text=auto eol=lf
+
+# Release archive (git archive / GitHub source downloads): only what runs on
+# the web server. See README, section "Release".
+/.github        export-ignore
+/.gitattributes export-ignore
+/.gitignore     export-ignore
+/dev            export-ignore
+/AGENTS.md      export-ignore
+/CHANGELOG.md   export-ignore
+/README.md      export-ignore
+/SECURITY.md    export-ignore
+
+# Version placeholder in index.php
+/index.php      export-subst

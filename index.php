@@ -1,4 +1,9 @@
 <?php
+// Filled in by `git archive` (export-subst in .gitattributes) when a release is
+// built; a plain checkout (or an archive without tag) shows "dev".
+$appVersion = '$Format:%(describe:tags=true)$';
+define('APP_VERSION', $appVersion === '' || $appVersion[0] === '$' ? 'dev' : $appVersion);
+
 // ── Config ──────────────────────────────────────────────────────────────────
 $defaultConfig = [
     'pin'            => getenv('CLIPBOARD_PIN') ?: '',
@@ -484,6 +489,7 @@ header('Content-Type: text/html; charset=utf-8');
   .err { background: #f8d7da; color: #721c24; border-radius: 6px; padding: .5rem .9rem; margin-bottom: .75rem; max-width: 700px; margin-inline: auto; font-size: .9rem; }
   .top-bar { max-width: 700px; margin-inline: auto; display: flex; justify-content: space-between; align-items: center; margin-bottom: .5rem; }
   .empty { text-align: center; color: #aaa; padding: 2rem; }
+  .version { text-align: center; color: #bbb; font-size: .72rem; margin-top: 1.5rem; }
   .dropzone { border: 2px dashed #b8c4d8; border-radius: 8px; padding: 1rem; text-align: center; color: #7a8aa3; cursor: pointer; transition: background .15s, border-color .15s; }
   .dropzone.dragover { background: #eef3fb; border-color: #4a6fa5; color: #4a6fa5; }
   .file-entry { display: flex; align-items: center; gap: .6rem; }
@@ -613,6 +619,8 @@ header('Content-Type: text/html; charset=utf-8');
     </div>
   <?php endforeach; ?>
   </div>
+
+  <div class="version">Clipboard <?= htmlspecialchars(APP_VERSION) ?></div>
 
 <script>
 const CSRF = <?= json_encode(CSRF_TOKEN) ?>; // sent with every state-changing request

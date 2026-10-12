@@ -12,3 +12,6 @@ uploads/*
 
 # Login throttling counters (index.php)
 login-attempts.json
+
+# Release builds (dev/build-release.ps1)
+dist/
