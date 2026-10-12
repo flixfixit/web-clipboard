@@ -14,7 +14,7 @@ jobs:
     name: PHP-Server mit Dev-Router
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: PHP-Syntax prüfen
         run: for f in index.php setup.php config.example.php dev/*.php; do php -l "$f"; done
@@ -48,7 +48,7 @@ jobs:
     name: Apache wie IONOS (FastCGI, .htaccess)
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Apache einrichten
         run: |
