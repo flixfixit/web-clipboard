@@ -19,5 +19,10 @@ return [
     'max_entries' => 50,
     'file_ttl_days' => 7,
     'confirm_delete' => false,
+    // Use a unique name per instance when several run on the same domain.
     'session_name' => 'clipboard_session',
+
+    // Login throttling per client IP.
+    'login_max_attempts' => 5,
+    'login_lockout_minutes' => 15,
 ];

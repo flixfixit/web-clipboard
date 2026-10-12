@@ -9,3 +9,6 @@ uploads/*
 
 # Local dev server data (dev/config.dev.php)
 .devdata/
+
+# Login throttling counters (index.php)
+login-attempts.json

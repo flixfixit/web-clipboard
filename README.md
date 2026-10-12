@@ -61,7 +61,9 @@ Solange kein eigener PIN gesetzt ist (leer oder noch der Platzhalter aus `config
 | `max_entries` | Maximale Anzahl gespeicherter Text-Einträge. |
 | `file_ttl_days` | Alter in Tagen, nach dem Uploads beim nächsten Aufruf gelöscht werden. |
 | `confirm_delete` | `true` zeigt Browser-Bestätigungen vor einzelnen Löschvorgängen. |
-| `session_name` | Name der PHP-Session. Nützlich, wenn mehrere Instanzen parallel laufen. |
+| `session_name` | Name der PHP-Session. Das Setup vergibt einen eindeutigen Namen, damit mehrere Instanzen auf einer Domain sich keine Sitzung teilen. |
+| `login_max_attempts` | Fehlversuche pro IP bis zur Login-Sperre (Standard 5). |
+| `login_lockout_minutes` | Dauer der Login-Sperre in Minuten (Standard 15). |
 
 ## Deployment
 
@@ -141,6 +143,8 @@ Nicht committen:
 - `config.php`
 - `data.json`
 - `files.json`
+- `login-attempts.json`
+- `setup-started.json`
 - Inhalte in `uploads/`
 
 ## Lizenz
