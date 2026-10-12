@@ -47,6 +47,7 @@ Diese Dateien und Ordnerinhalte sind lokale Laufzeitdaten und dürfen nicht ins 
 
 - Keine neuen Aktionen dürfen vor der Authentifizierungsprüfung erreichbar sein. Einzige Ausnahme ist `setup.php`: nur solange keine `config.php` existiert, nur im 30-Minuten-Zeitfenster und nie direkt aufrufbar.
 - `setup.php` enthält Kopien von `.htaccess` und `uploads/.htaccess`. Wer diese Dateien ändert, passt `setupHtaccessFiles()` mit an; `dev/smoketest.php` prüft die Übereinstimmung.
+- Jede neue verändernde Aktion muss im CSRF-Block von `index.php` erfasst sein (`$changesState`). POST ist automatisch abgedeckt, GET-Aktionen müssen dort ergänzt werden, und Links/Formulare müssen `csrf` mitsenden.
 - Upload-Blobs dürfen nie direkt öffentlich verlinkt oder anhand ihres Dateinamens ausgeliefert werden.
 - `config.php`, JSON-Daten und Upload-Inhalte bleiben aus Git ausgeschlossen.
 - UI-Texte sind aktuell Deutsch; neue sichtbare Texte bitte ebenfalls Deutsch halten.

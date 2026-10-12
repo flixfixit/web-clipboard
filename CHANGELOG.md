@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- CSRF-Schutz für alle verändernden Aktionen (Speichern, Upload, Löschen, Alle löschen, Abmelden).
+- Session-Cookie mit `HttpOnly`, `SameSite=Lax`, `Secure` (bei HTTPS) und Pfad auf das App-Verzeichnis; `session.use_strict_mode` aktiv. Das Setup vergibt einen eindeutigen `session_name` pro Instanz.
+- Sicherheits-Header: Content-Security-Policy, `X-Frame-Options`, `X-Content-Type-Options`, `Referrer-Policy`.
+- Login-Bremse: Sperre nach 5 Fehlversuchen pro IP für 15 Minuten (`login_max_attempts`, `login_lockout_minutes`).
 - Einrichtung im Browser (`setup.php`): Ohne `config.php` fragt die App beim ersten Aufruf Passwort, Datei-Lebensdauer, maximale Text-Einträge und Löschbestätigung ab, legt `config.php`, Datendateien, `uploads/` und fehlende `.htaccess`-Dateien an und prüft per HTTP, ob die Schutzregeln greifen. Erreichbar nur 30 Minuten nach dem ersten Aufruf.
 - Passwort wird als `pin_hash` (`password_hash()`) gespeichert; `pin` im Klartext funktioniert weiter.
 - Sitzungen sind an das aktuelle Passwort gebunden; nach einem Wechsel sind alle Sitzungen ungültig. Session-ID wird beim Login erneuert. Bestehende Sitzungen müssen sich nach dem Update einmal neu anmelden.
