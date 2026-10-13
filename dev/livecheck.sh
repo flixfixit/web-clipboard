@@ -35,7 +35,7 @@ fi
 
 echo
 echo "Geschützte Pfade:"
-for p in /config.php /data.json /files.json /login-attempts.json /uploads/ /uploads/.htaccess /.htaccess /.git/HEAD; do
+for p in /config.php /data.json /files.json /login-attempts.json /api-tokens.json /uploads/ /uploads/.htaccess /.htaccess /.git/HEAD; do
     status=$(curl -s -o /dev/null -w '%{http_code}' "$base$p")
     check "$p → 403" "$([ "$status" = 403 ]; echo $?)" "Status $status"
 done
@@ -47,6 +47,8 @@ status=$(curl -s -o "$tmp/b" -w '%{http_code}' "$base/uploads.x")
 check "mod_speling verrät keine Dateinamen" "$([ "$status" != 300 ] && ! grep -q 'data.json' "$tmp/b"; echo $?)" "Status $status"
 status=$(curl -s -o "$tmp/b" -w '%{http_code}' "$base/?json=1")
 check "?json=1 liefert ohne Login keine Daten" "$(! grep -q '"texts"' "$tmp/b"; echo $?)"
+status=$(curl -s -o "$tmp/b" -w '%{http_code}' "$base/index.php?api=texts")
+check "API ohne Token → 401" "$([ "$status" = 401 ] && ! grep -q '"texts"' "$tmp/b"; echo $?)" "Status $status"
 
 echo
 if [ "$failed" -eq 0 ]; then echo "Alle Prüfungen bestanden."; else echo "$failed Prüfung(en) fehlgeschlagen."; fi

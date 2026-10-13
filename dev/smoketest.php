@@ -166,6 +166,129 @@ $s1 = state();
 check('Text und Datei wieder gelöscht',
     !in_array($marker, array_column($s1['texts'], 'text'), true) && !in_array($fileName, array_column($s1['files'], 'name'), true));
 
+echo "\nAPI-Token und REST-API:\n";
+[$s] = req('POST', '/', ['newtoken' => '1', 'token_name' => 'smoketest']);
+check('Token erzeugen ohne CSRF-Token → 403', $s === 403, "Status $s");
+$tokenName = 'smoketest <i>' . bin2hex(random_bytes(4)) . '</i>';
+[$s] = req('POST', '/', ['newtoken' => '1', 'token_name' => $tokenName, 'csrf' => $csrf]);
+check('Token erzeugen leitet weiter', $s === 302 || $s === 303, "Status $s");
+[, $page] = req('GET', '/');
+preg_match('#cbt_[0-9a-f]{48}#', $page, $m);
+$token = $m[0] ?? '';
+check('Neues Token wird angezeigt, Name HTML-escaped', $token !== '' && str_contains($page, htmlspecialchars($tokenName)));
+[, $page] = req('GET', '/');
+check('Token wird nur einmal angezeigt', $token !== '' && !str_contains($page, $token));
+// Only revoke our own token, other tokens in the list stay untouched
+preg_match('#' . preg_quote(htmlspecialchars($tokenName), '#') . '</strong>.*?\?deltoken=([0-9a-f]+)&amp;csrf=#s', $page, $m);
+$tokenId = $m[1] ?? '';
+
+// API requests never send the session cookie
+function api(string $method, string $path, array $headers = [], string $body = ''): array {
+    global $base, $lastHeaders;
+    $ctx = stream_context_create(['http' => [
+        'method' => $method, 'header' => implode("\r\n", $headers), 'content' => $body,
+        'ignore_errors' => true, 'follow_location' => 0, 'timeout' => 30,
+    ]]);
+    $resp = (string)@file_get_contents($base . $path, false, $ctx);
+    $lastHeaders = $http_response_header ?? [];
+    preg_match('#^HTTP/\S+ (\d+)#', $lastHeaders[0] ?? '', $m);
+    return [(int)($m[1] ?? 0), $resp, json_decode($resp, true)];
+}
+function multipart(array $fields, array $files): array {
+    $b = '----smoke' . bin2hex(random_bytes(8));
+    $body = '';
+    foreach ($fields as $k => $v) $body .= "--$b\r\nContent-Disposition: form-data; name=\"$k\"\r\n\r\n$v\r\n";
+    foreach ($files as $k => [$name, $data]) {
+        $body .= "--$b\r\nContent-Disposition: form-data; name=\"$k\"; filename=\"$name\"\r\n"
+               . "Content-Type: application/octet-stream\r\n\r\n$data\r\n";
+    }
+    return ["Content-Type: multipart/form-data; boundary=$b", $body . "--$b--\r\n"];
+}
+$auth = "X-Clipboard-Token: $token";
+
+[$s] = api('GET', '/?api=ping');
+check('API ohne Token → 401', $s === 401, "Status $s");
+[$s] = api('GET', '/?api=ping', ['X-Clipboard-Token: cbt_' . str_repeat('0', 48)]);
+check('API mit falschem Token → 401', $s === 401, "Status $s");
+[$s] = req('GET', '/?api=texts');
+check('API mit Session-Cookie statt Token → 401', $s === 401, "Status $s");
+[$s] = api('GET', '/?api=ping&token=' . $token);
+check('Token in der URL wird ignoriert → 401', $s === 401, "Status $s");
+[$s, , $j] = api('GET', '/?api=ping', [$auth]);
+check('API ping mit X-Clipboard-Token', $s === 200 && ($j['ok'] ?? false) && ($j['token'] ?? '') === $tokenName, "Status $s");
+check('API-Antwort ist JSON, nicht cachebar', str_starts_with(header_line('Content-Type'), 'application/json')
+    && str_contains(header_line('Cache-Control'), 'no-store'));
+[$s] = api('GET', '/?api=ping', ["Authorization: Bearer $token"]);
+check('API ping mit Authorization: Bearer', $s === 200, "Status $s (Server reicht Authorization evtl. nicht an PHP weiter)");
+[$s] = api('GET', '/?api=gibt-es-nicht', [$auth]);
+check('Unbekannte Ressource → 404', $s === 404, "Status $s");
+
+$apiText = "api-smoketest <b>" . bin2hex(random_bytes(6)) . "</b>\nzweite Zeile äöü";
+[$s, , $j] = api('POST', '/?api=texts', [$auth, 'Content-Type: application/json'], json_encode(['text' => $apiText]));
+$apiTextId = $j['text']['id'] ?? '';
+check('API: Text als JSON speichern → 201', $s === 201 && ($j['text']['text'] ?? '') === $apiText, "Status $s");
+check('API-Text erscheint in der Weboberfläche', in_array($apiText, array_column(state()['texts'], 'text'), true));
+[$s, , $j] = api('POST', '/?api=texts', [$auth, 'Content-Type: text/plain; charset=utf-8'], 'plain ' . $apiText);
+$plainId = $j['text']['id'] ?? '';
+check('API: Text als text/plain speichern → 201', $s === 201 && ($j['text']['text'] ?? '') === 'plain ' . $apiText, "Status $s");
+[$s] = api('POST', '/?api=texts', [$auth, 'Content-Type: application/json'], '{"text": "   "}');
+check('API: leerer Text → 400', $s === 400, "Status $s");
+[$s, , $j] = api('GET', '/?api=texts', [$auth]);
+check('API: Texte lesen', $s === 200 && in_array($apiText, array_column($j['texts'] ?? [], 'text'), true));
+[$s, , $j] = api('GET', '/?api=texts&id=' . urlencode($apiTextId), [$auth]);
+check('API: einzelnen Text lesen', $s === 200 && ($j['text']['text'] ?? '') === $apiText, "Status $s");
+[$s] = api('DELETE', '/?api=texts&id=' . urlencode($apiTextId), [$auth]);
+check('API: Text löschen (DELETE)', $s === 200 && !in_array($apiText, array_column(state()['texts'], 'text'), true), "Status $s");
+[$s] = api('DELETE', '/?api=texts&id=' . urlencode($apiTextId), [$auth]);
+check('API: bereits gelöschter Text → 404', $s === 404, "Status $s");
+[$s] = api('POST', '/?api=texts&id=' . urlencode($plainId) . '&_method=DELETE', [$auth]);
+check('API: Text löschen per POST &_method=DELETE', $s === 200, "Status $s");
+
+$apiData = random_bytes(300 * 1024);
+$apiName = 'api-smoketest-' . bin2hex(random_bytes(4)) . '.bin';
+[$ct, $body] = multipart([], ['file' => [$apiName, $apiData]]);
+[$s, , $j] = api('POST', '/?api=files', [$auth, $ct], $body);
+$apiFileId = $j['files'][0]['id'] ?? '';
+check('API: Datei hochladen → 201', $s === 201 && ($j['files'][0]['size'] ?? 0) === strlen($apiData), "Status $s");
+[$s, , $j] = api('GET', '/?api=files', [$auth]);
+check('API: Dateiliste enthält die Datei', in_array($apiName, array_column($j['files'] ?? [], 'name'), true));
+[$s, $dl] = api('GET', '/?api=files&id=' . urlencode($apiFileId), [$auth]);
+check('API: Download liefert identischen Inhalt', $s === 200 && $dl === $apiData, "Status $s");
+[$s, $dl] = api('GET', '/?api=files&id=' . urlencode($apiFileId));
+check('API: Download ohne Token → 401', $s === 401 && $dl !== $apiData, "Status $s");
+[$s] = api('DELETE', '/?api=files&id=' . urlencode($apiFileId), [$auth]);
+check('API: Datei löschen', $s === 200 && !in_array($apiName, array_column(state()['files'], 'name'), true), "Status $s");
+
+// Chunked like the browser: three small pieces
+$parts = str_split(random_bytes(3000), 1000);
+$uploadId = bin2hex(random_bytes(8));
+$chunkName = 'api-chunks-' . $uploadId . '.bin';
+$ok = true;
+$j = [];
+foreach ($parts as $i => $part) {
+    [$ct, $body] = multipart(['uploadId' => $uploadId, 'chunkIndex' => $i, 'totalChunks' => count($parts), 'fileName' => $chunkName],
+        ['chunk' => ['blob', $part]]);
+    [$s, , $j] = api('POST', '/?api=files', [$auth, $ct], $body);
+    $ok = $ok && ($j['ok'] ?? false) && $s === ($i === count($parts) - 1 ? 201 : 200);
+}
+$chunkId = $j['file']['id'] ?? '';
+[, $dl] = api('GET', '/?api=files&id=' . urlencode($chunkId), [$auth]);
+check('API: Chunked Upload (3 Chunks) ergibt identische Datei', $ok && $dl === implode('', $parts));
+api('DELETE', '/?api=files&id=' . urlencode($chunkId), [$auth]);
+[$s] = api('GET', '/?api=all', [$auth]);
+check('API: "all" nur per DELETE (GET → 405)', $s === 405, "Status $s");
+
+[$s] = req('GET', '/?deltoken=' . urlencode($tokenId));
+check('Token widerrufen ohne CSRF-Token → 403', $s === 403, "Status $s");
+req('GET', '/?deltoken=' . urlencode($tokenId) . '&csrf=' . $csrf);
+[$s] = api('GET', '/?api=ping', [$auth]);
+check('Widerrufenes Token → 401', $tokenId !== '' && $s === 401, "Status $s");
+// The failed token attempts above count towards the login lockout; a login resets it
+req('POST', '/', ['pin' => $pin]);
+[, $page] = req('GET', '/');
+preg_match('#name="csrf" value="([0-9a-f]{64})"#', $page, $m);
+$csrf = $m[1] ?? $csrf;
+
 [$s] = req('GET', '/?logout=1');
 check('Abmelden ohne CSRF-Token → 403, Session bleibt', $s === 403 && state() !== null, "Status $s");
 req('GET', '/?logout=1&csrf=' . $csrf);

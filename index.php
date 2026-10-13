@@ -66,6 +66,7 @@ define('SESSION_NAME', (string)$config['session_name']);
 define('LOGIN_MAX_ATTEMPTS', max(1, (int)$config['login_max_attempts']));
 define('LOGIN_LOCKOUT', max(1, (int)$config['login_lockout_minutes']) * 60);
 define('ATTEMPTS_FILE', dirname(DATA_FILE) . '/login-attempts.json');
+define('TOKENS_FILE', dirname(DATA_FILE) . '/api-tokens.json');
 
 // An empty PIN or one of the documented placeholders must never grant access,
 // otherwise a fresh deployment without config.php would be open to anyone.
@@ -110,6 +111,14 @@ function loginThrottle(?bool $record = null): int {
     return max(0, $wait);
 }
 
+// ── REST API ─────────────────────────────────────────────────────────────────
+// Requests with ?api=… are answered by runApi() (see below) and never touch the
+// session: only an API token authorises them, a session cookie does not.
+if (isset($_GET['api'])) {
+    runApi();
+    exit;
+}
+
 // ── Session / Auth ───────────────────────────────────────────────────────────
 session_name(SESSION_NAME);
 session_start();
@@ -140,7 +149,8 @@ if (!PIN_CONFIGURED) {
 if ($authenticated && empty($_SESSION['csrf'])) $_SESSION['csrf'] = bin2hex(random_bytes(32));
 define('CSRF_TOKEN', (string)($_SESSION['csrf'] ?? ''));
 $changesState = ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['pin']))
-    || isset($_GET['delete']) || isset($_GET['delfile']) || isset($_GET['clearall']) || isset($_GET['logout']);
+    || isset($_GET['delete']) || isset($_GET['delfile']) || isset($_GET['clearall']) || isset($_GET['logout'])
+    || isset($_GET['deltoken']);
 if ($authenticated && $changesState) {
     $sent = $_POST['csrf'] ?? $_GET['csrf'] ?? '';
     if (!is_string($sent) || !hash_equals(CSRF_TOKEN, $sent)) {
@@ -160,6 +170,19 @@ if (isset($_GET['logout'])) {
     session_destroy();
     header('Location: index.php');
     exit;
+}
+
+// A new API token is shown exactly once: create it, keep it in the session for
+// the redirect (so a reload does not create another one) and drop it on display.
+$newToken = '';
+if ($authenticated) {
+    if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['newtoken'])) {
+        $_SESSION['new_token'] = createToken((string)($_POST['token_name'] ?? ''));
+        header('Location: index.php#api');
+        exit;
+    }
+    $newToken = (string)($_SESSION['new_token'] ?? '');
+    unset($_SESSION['new_token']);
 }
 
 // Release the session lock now: auth is resolved and nothing below writes to
@@ -240,6 +263,315 @@ function purgeUploads(): int {
     return $remaining;
 }
 
+// ── Clipboard operations (shared by the web UI and the API) ─────────────────
+function addEntry(string $text): ?array {
+    $text = trim($text);
+    if ($text === '') return null;
+    $entry = ['id' => uniqid('', true), 'text' => $text, 'ts' => time()];
+    $entries = loadEntries();
+    array_unshift($entries, $entry);
+    saveEntries(array_slice($entries, 0, MAX_ENTRIES));
+    return $entry;
+}
+
+function deleteEntry(string $id): bool {
+    $entries = loadEntries();
+    $kept = array_values(array_filter($entries, fn($e) => $e['id'] !== $id));
+    saveEntries($kept);
+    return count($kept) < count($entries);
+}
+
+function findFile(string $id): ?array {
+    foreach (loadFiles() as $f) { if ($f['id'] === $id) return $f; }
+    return null;
+}
+
+// Register an already stored blob (random name under UPLOAD_DIR) in the index.
+function addFile(string $stored, string $name): array {
+    $file = [
+        'id'     => uniqid('', true),
+        'name'   => basename($name) !== '' ? basename($name) : 'upload.bin',
+        'stored' => $stored,
+        'size'   => filesize(UPLOAD_DIR . '/' . $stored),
+        'ts'     => time(),
+    ];
+    $files = loadFiles();
+    array_unshift($files, $file);
+    saveFiles($files);
+    return $file;
+}
+
+// Move a file from a regular (non-chunked) upload into storage.
+function storeUpload(string $tmpName, string $name): ?array {
+    if (!is_dir(UPLOAD_DIR)) @mkdir(UPLOAD_DIR, 0775, true);
+    $stored = bin2hex(random_bytes(16));
+    return move_uploaded_file($tmpName, UPLOAD_DIR . '/' . $stored) ? addFile($stored, $name) : null;
+}
+
+// Chunked upload: receive one piece at a time, assemble on the final chunk.
+// Keeps every request small so server/proxy size limits are never hit.
+// Returns [HTTP status, JSON response].
+function receiveChunk(string $uploadId, int $index, int $total, string $name, ?array $chunk): array {
+    $uploadId = preg_replace('/[^a-f0-9]/', '', $uploadId);
+    if ($uploadId === '' || $index < 0 || $total < 1 || $index >= $total
+        || !$chunk || ($chunk['error'] ?? null) !== UPLOAD_ERR_OK) {
+        return [400, ['ok' => false, 'error' => 'Ungültiger Chunk.']];
+    }
+
+    if (!is_dir(UPLOAD_DIR)) @mkdir(UPLOAD_DIR, 0775, true);
+    $tmpDir = UPLOAD_DIR . '/.tmp_' . $uploadId;
+    if (!is_dir($tmpDir)) @mkdir($tmpDir, 0775, true);
+
+    if (!move_uploaded_file($chunk['tmp_name'], $tmpDir . '/' . $index)) {
+        return [500, ['ok' => false, 'error' => 'Chunk konnte nicht gespeichert werden.']];
+    }
+
+    // Not the last chunk → acknowledge and wait for the next one
+    if ($index < $total - 1) return [200, ['ok' => true, 'done' => false]];
+
+    // Final chunk → concatenate all parts in order into the stored file
+    $stored = bin2hex(random_bytes(16));
+    $out = fopen(UPLOAD_DIR . '/' . $stored, 'wb');
+    for ($i = 0; $i < $total; $i++) {
+        $part = $tmpDir . '/' . $i;
+        if (!is_file($part)) {
+            fclose($out);
+            @unlink(UPLOAD_DIR . '/' . $stored);
+            return [400, ['ok' => false, 'error' => 'Fehlender Chunk ' . $i . '.']];
+        }
+        $in = fopen($part, 'rb');
+        stream_copy_to_stream($in, $out);
+        fclose($in);
+        @unlink($part);
+    }
+    fclose($out);
+    @rmdir($tmpDir);
+
+    return [200, ['ok' => true, 'done' => true, 'file' => addFile($stored, $name)]];
+}
+
+function deleteFile(string $id): bool {
+    $files = loadFiles();
+    $kept = [];
+    foreach ($files as $f) {
+        if ($f['id'] === $id) { @unlink(UPLOAD_DIR . '/' . $f['stored']); }
+        else { $kept[] = $f; }
+    }
+    saveFiles($kept);
+    return count($kept) < count($files);
+}
+
+// Clear all: texts, file index and every blob under uploads/ (incl. orphans).
+// Returns the number of leftover items that could not be deleted.
+function clearAll(): int {
+    saveEntries([]);
+    saveFiles([]);
+    return purgeUploads();
+}
+
+// Stream a stored file (always through PHP, so the PIN or token protects it).
+function sendFile(array $f): void {
+    $path = UPLOAD_DIR . '/' . $f['stored'];
+    header('Content-Type: application/octet-stream');
+    header('Content-Length: ' . filesize($path));
+    header('Content-Disposition: attachment; filename="' . addslashes($f['name']) . '"');
+    header('Cache-Control: no-store');
+    readfile($path);
+}
+
+// ── API tokens ───────────────────────────────────────────────────────────────
+// Tokens are random (192 bit) and only their SHA-256 hash is stored, next to
+// data.json in api-tokens.json. The plain token is shown once after creation.
+function loadTokens(): array {
+    if (!file_exists(TOKENS_FILE)) return [];
+    $data = json_decode(file_get_contents(TOKENS_FILE), true);
+    return is_array($data) ? $data : [];
+}
+
+function saveTokens(array $tokens): void {
+    file_put_contents(TOKENS_FILE, json_encode($tokens, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
+}
+
+function createToken(string $name): string {
+    $plain = 'cbt_' . bin2hex(random_bytes(24));
+    $name = trim(preg_replace('/\s+/u', ' ', $name) ?? '');
+    $tokens = loadTokens();
+    $tokens[] = [
+        'id'        => bin2hex(random_bytes(8)),
+        'name'      => $name !== '' ? (preg_match('/^.{0,60}/u', $name, $m) ? $m[0] : 'API-Token') : 'API-Token',
+        'hash'      => hash('sha256', $plain),
+        'hint'      => substr($plain, 0, 10) . '…',
+        'created'   => time(),
+        'last_used' => 0,
+    ];
+    saveTokens($tokens);
+    return $plain;
+}
+
+function deleteToken(string $id): void {
+    saveTokens(array_values(array_filter(loadTokens(), fn($t) => $t['id'] !== $id)));
+}
+
+// Look up a plain token; remembers when it was last used (at most once a minute).
+function findToken(string $plain): ?array {
+    $hash = hash('sha256', $plain);
+    $tokens = loadTokens();
+    foreach ($tokens as $i => $t) {
+        if (is_string($t['hash'] ?? null) && hash_equals($t['hash'], $hash)) {
+            if (time() - (int)$t['last_used'] > 60) {
+                $tokens[$i]['last_used'] = time();
+                saveTokens($tokens);
+            }
+            return $t;
+        }
+    }
+    return null;
+}
+
+// Token from "X-Clipboard-Token: …" or "Authorization: Bearer …". Never read
+// from the URL, where it would end up in logs and browser history.
+function apiTokenFromRequest(): string {
+    $token = (string)($_SERVER['HTTP_X_CLIPBOARD_TOKEN'] ?? '');
+    if ($token === '') {
+        $auth = (string)($_SERVER['HTTP_AUTHORIZATION'] ?? $_SERVER['REDIRECT_HTTP_AUTHORIZATION'] ?? '');
+        if ($auth === '' && function_exists('getallheaders')) {
+            foreach (getallheaders() as $k => $v) { if (strcasecmp($k, 'Authorization') === 0) $auth = (string)$v; }
+        }
+        if (preg_match('/^Bearer\s+(\S+)$/i', trim($auth), $m)) $token = $m[1];
+    }
+    return trim($token);
+}
+
+function apiReply(int $status, array $data): void {
+    http_response_code($status);
+    header('Content-Type: application/json; charset=utf-8');
+    header('Cache-Control: no-store');
+    echo json_encode($data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    exit;
+}
+
+function apiError(int $status, string $message): void {
+    apiReply($status, ['ok' => false, 'error' => $message]);
+}
+
+function apiEntry(array $e): array {
+    return ['id' => $e['id'], 'text' => $e['text'], 'ts' => $e['ts'], 'date' => date('c', $e['ts'])];
+}
+
+function apiFile(array $f): array {
+    return ['id' => $f['id'], 'name' => $f['name'], 'size' => $f['size'], 'ts' => $f['ts'], 'date' => date('c', $f['ts'])];
+}
+
+// Text from a JSON body {"text": "…"}, a form field "text" or a text/plain body.
+function apiTextFromRequest(): ?string {
+    $type = strtolower((string)($_SERVER['CONTENT_TYPE'] ?? ''));
+    if (str_starts_with($type, 'application/json')) {
+        $body = json_decode((string)file_get_contents('php://input'), true);
+        return is_array($body) && is_string($body['text'] ?? null) ? $body['text'] : null;
+    }
+    if (isset($_POST['text'])) return is_string($_POST['text']) ? $_POST['text'] : null;
+    if (str_starts_with($type, 'text/plain')) return (string)file_get_contents('php://input');
+    return null;
+}
+
+// ?api=ping|texts|files|all[&id=…]. Every call needs a valid token; failed
+// attempts count towards the same per-IP lockout as wrong PINs.
+function runApi(): void {
+    $method = $_SERVER['REQUEST_METHOD'];
+    // For clients or hosters that cannot send DELETE: POST …&_method=DELETE
+    if ($method === 'POST' && strtoupper((string)($_GET['_method'] ?? '')) === 'DELETE') $method = 'DELETE';
+
+    if (!PIN_CONFIGURED) apiError(503, 'Clipboard ist noch nicht eingerichtet.');
+    $plain = apiTokenFromRequest();
+    if ($plain === '') apiError(401, 'API-Token fehlt (Header X-Clipboard-Token oder Authorization: Bearer).');
+    if (($wait = loginThrottle()) > 0) {
+        header('Retry-After: ' . $wait);
+        apiError(429, 'Zu viele Fehlversuche. Bitte in ' . (int)ceil($wait / 60) . ' Minute(n) erneut versuchen.');
+    }
+    $token = findToken($plain);
+    if ($token === null) {
+        loginThrottle(false);
+        apiError(401, 'Ungültiges API-Token.');
+    }
+
+    cleanupFiles();
+    $resource = (string)$_GET['api'];
+    $id = isset($_GET['id']) ? (string)$_GET['id'] : null;
+
+    if ($resource === 'ping' && $method === 'GET') {
+        apiReply(200, ['ok' => true, 'version' => APP_VERSION, 'token' => $token['name']]);
+    }
+
+    if ($resource === 'texts') {
+        if ($method === 'GET' && $id === null) {
+            apiReply(200, ['ok' => true, 'texts' => array_map('apiEntry', loadEntries())]);
+        }
+        if ($method === 'GET') {
+            foreach (loadEntries() as $e) { if ($e['id'] === $id) apiReply(200, ['ok' => true, 'text' => apiEntry($e)]); }
+            apiError(404, 'Eintrag nicht gefunden.');
+        }
+        if ($method === 'POST' && $id === null) {
+            $text = apiTextFromRequest();
+            $entry = $text !== null ? addEntry($text) : null;
+            if ($entry === null) apiError(400, 'Kein Text übergeben (JSON {"text": …}, Formularfeld text oder text/plain).');
+            apiReply(201, ['ok' => true, 'text' => apiEntry($entry)]);
+        }
+        if ($method === 'DELETE' && $id !== null) {
+            deleteEntry($id) ? apiReply(200, ['ok' => true]) : apiError(404, 'Eintrag nicht gefunden.');
+        }
+    }
+
+    if ($resource === 'files') {
+        if ($method === 'GET' && $id === null) {
+            apiReply(200, ['ok' => true, 'files' => array_map('apiFile', loadFiles())]);
+        }
+        if ($method === 'GET') {
+            $f = findFile($id);
+            if ($f === null || !is_file(UPLOAD_DIR . '/' . $f['stored'])) apiError(404, 'Datei nicht gefunden.');
+            sendFile($f);
+            exit;
+        }
+        if ($method === 'POST' && $id === null) {
+            // Same chunk protocol as the browser: uploadId, chunkIndex, totalChunks, fileName, chunk
+            if (isset($_FILES['chunk'])) {
+                [$status, $res] = receiveChunk((string)($_POST['uploadId'] ?? ''), (int)($_POST['chunkIndex'] ?? -1),
+                    (int)($_POST['totalChunks'] ?? 0), (string)($_POST['fileName'] ?? ''), $_FILES['chunk']);
+                if (isset($res['file'])) { $res['file'] = apiFile($res['file']); $status = 201; }
+                apiReply($status, $res);
+            }
+            if (!isset($_FILES['file'])) {
+                apiError(400, 'Keine Datei übergeben (Formularfeld file). Große Dateien in Chunks senden.');
+            }
+            // file=@a or file[]=@a&file[]=@b
+            $names = (array)$_FILES['file']['name'];
+            $tmps  = (array)$_FILES['file']['tmp_name'];
+            $stored = [];
+            foreach ((array)$_FILES['file']['error'] as $i => $err) {
+                if ($err !== UPLOAD_ERR_OK) {
+                    apiError(in_array($err, [UPLOAD_ERR_INI_SIZE, UPLOAD_ERR_FORM_SIZE], true) ? 413 : 400,
+                        'Upload fehlgeschlagen (evtl. zu groß für die Server-Grenze, dann in Chunks senden).');
+                }
+                $f = storeUpload((string)$tmps[$i], (string)$names[$i]);
+                if ($f === null) apiError(500, 'Datei konnte nicht gespeichert werden.');
+                $stored[] = apiFile($f);
+            }
+            apiReply(201, ['ok' => true, 'files' => $stored]);
+        }
+        if ($method === 'DELETE' && $id !== null) {
+            deleteFile($id) ? apiReply(200, ['ok' => true]) : apiError(404, 'Datei nicht gefunden.');
+        }
+    }
+
+    if ($resource === 'all' && $method === 'DELETE') {
+        $remaining = clearAll();
+        $remaining === 0 ? apiReply(200, ['ok' => true])
+            : apiError(500, 'Einige Dateien konnten nicht gelöscht werden (Dateirechte prüfen).');
+    }
+
+    apiError(in_array($resource, ['ping', 'texts', 'files', 'all'], true) ? 405 : 404,
+        'Unbekannte API-Anfrage. Siehe README, Abschnitt „REST-API“.');
+}
+
 // ── Actions (only when authenticated) ────────────────────────────────────────
 $message = '';
 $error   = '';
@@ -253,20 +585,16 @@ if ($authenticated) {
     if (isset($_GET['err']) && $_GET['err'] === 'purge') {
         $error = 'Einige Dateien konnten nicht gelöscht werden (Dateirechte prüfen).';
     }
+    if (isset($_GET['msg']) && $_GET['msg'] === 'tokendel') {
+        $message = 'API-Token widerrufen.';
+    }
     cleanupFiles();
 
     // Download a stored file (streamed through PHP so the PIN protects it)
     if (isset($_GET['download'])) {
-        $files = loadFiles();
-        $f = null;
-        foreach ($files as $cand) { if ($cand['id'] === $_GET['download']) { $f = $cand; break; } }
-        $path = $f ? UPLOAD_DIR . '/' . $f['stored'] : null;
-        if ($f && $path && is_file($path)) {
-            header('Content-Type: application/octet-stream');
-            header('Content-Length: ' . filesize($path));
-            header('Content-Disposition: attachment; filename="' . addslashes($f['name']) . '"');
-            header('Cache-Control: no-store');
-            readfile($path);
+        $f = findFile((string)$_GET['download']);
+        if ($f && is_file(UPLOAD_DIR . '/' . $f['stored'])) {
+            sendFile($f);
         } else {
             http_response_code(404);
             echo 'Datei nicht gefunden.';
@@ -274,76 +602,24 @@ if ($authenticated) {
         exit;
     }
 
-    // Chunked upload: receive one piece at a time, assemble on the final chunk.
-    // Keeps every request small so server/proxy size limits are never hit.
+    // Chunked upload from the browser (see receiveChunk())
     if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['chunked'])) {
+        [$status, $res] = receiveChunk((string)($_POST['uploadId'] ?? ''), (int)($_POST['chunkIndex'] ?? -1),
+            (int)($_POST['totalChunks'] ?? 0), (string)($_POST['fileName'] ?? ''), $_FILES['chunk'] ?? null);
+        unset($res['file']);
+        http_response_code($status);
         header('Content-Type: application/json; charset=utf-8');
-        $uploadId = preg_replace('/[^a-f0-9]/', '', $_POST['uploadId'] ?? '');
-        $index    = (int)($_POST['chunkIndex'] ?? -1);
-        $total    = (int)($_POST['totalChunks'] ?? 0);
-        $name     = basename($_POST['fileName'] ?? '');
-
-        if ($uploadId === '' || $index < 0 || $total < 1
-            || !isset($_FILES['chunk']) || $_FILES['chunk']['error'] !== UPLOAD_ERR_OK) {
-            http_response_code(400);
-            echo json_encode(['ok' => false, 'error' => 'Ungültiger Chunk.']);
-            exit;
-        }
-
-        if (!is_dir(UPLOAD_DIR)) @mkdir(UPLOAD_DIR, 0775, true);
-        $tmpDir = UPLOAD_DIR . '/.tmp_' . $uploadId;
-        if (!is_dir($tmpDir)) @mkdir($tmpDir, 0775, true);
-
-        move_uploaded_file($_FILES['chunk']['tmp_name'], $tmpDir . '/' . $index);
-
-        // Not the last chunk → acknowledge and wait for the next one
-        if ($index < $total - 1) {
-            echo json_encode(['ok' => true, 'done' => false]);
-            exit;
-        }
-
-        // Final chunk → concatenate all parts in order into the stored file
-        $stored = bin2hex(random_bytes(16));
-        $out = fopen(UPLOAD_DIR . '/' . $stored, 'wb');
-        for ($i = 0; $i < $total; $i++) {
-            $part = $tmpDir . '/' . $i;
-            if (!is_file($part)) {
-                fclose($out);
-                @unlink(UPLOAD_DIR . '/' . $stored);
-                http_response_code(400);
-                echo json_encode(['ok' => false, 'error' => 'Fehlender Chunk ' . $i . '.']);
-                exit;
-            }
-            $in = fopen($part, 'rb');
-            stream_copy_to_stream($in, $out);
-            fclose($in);
-            @unlink($part);
-        }
-        fclose($out);
-        @rmdir($tmpDir);
-
-        $files = loadFiles();
-        array_unshift($files, [
-            'id'     => uniqid('', true),
-            'name'   => $name !== '' ? $name : 'upload.bin',
-            'stored' => $stored,
-            'size'   => filesize(UPLOAD_DIR . '/' . $stored),
-            'ts'     => time(),
-        ]);
-        saveFiles($files);
-        echo json_encode(['ok' => true, 'done' => true]);
+        echo json_encode($res);
         exit;
     }
 
     // Upload one or more files (non-JS fallback, single request)
     if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['upload'])) {
-        if (!is_dir(UPLOAD_DIR)) @mkdir(UPLOAD_DIR, 0775, true);
         $up = $_FILES['upload'];
         // Normalise to arrays (single vs. multiple)
         $names = is_array($up['name']) ? $up['name'] : [$up['name']];
         $tmps  = is_array($up['tmp_name']) ? $up['tmp_name'] : [$up['tmp_name']];
         $errs  = is_array($up['error']) ? $up['error'] : [$up['error']];
-        $files = loadFiles();
         $count = 0;
         foreach ($names as $i => $origName) {
             if ($errs[$i] === UPLOAD_ERR_NO_FILE) continue;
@@ -351,19 +627,8 @@ if ($authenticated) {
                 $error = 'Upload fehlgeschlagen (evtl. zu groß für die Server-Grenze).';
                 continue;
             }
-            $stored = bin2hex(random_bytes(16));
-            if (move_uploaded_file($tmps[$i], UPLOAD_DIR . '/' . $stored)) {
-                array_unshift($files, [
-                    'id'     => uniqid('', true),
-                    'name'   => basename($origName),
-                    'stored' => $stored,
-                    'size'   => filesize(UPLOAD_DIR . '/' . $stored),
-                    'ts'     => time(),
-                ]);
-                $count++;
-            }
+            if (storeUpload($tmps[$i], $origName)) $count++;
         }
-        if ($count > 0) saveFiles($files);
 
         // AJAX upload → answer with JSON instead of redirecting
         if (isset($_POST['ajax'])) {
@@ -379,54 +644,41 @@ if ($authenticated) {
 
     // Delete a file
     if (isset($_GET['delfile'])) {
-        $files = loadFiles();
-        $kept = [];
-        foreach ($files as $f) {
-            if ($f['id'] === $_GET['delfile']) { @unlink(UPLOAD_DIR . '/' . $f['stored']); }
-            else { $kept[] = $f; }
-        }
-        saveFiles($kept);
+        deleteFile((string)$_GET['delfile']);
         header('Location: index.php');
         exit;
     }
 
     // Add
     if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['text'])) {
-        $text = trim($_POST['text']);
-        if ($text !== '') {
-            $entries = loadEntries();
-            array_unshift($entries, [
-                'id'   => uniqid('', true),
-                'text' => $text,
-                'ts'   => time(),
-            ]);
-            $entries = array_slice($entries, 0, MAX_ENTRIES);
-            saveEntries($entries);
-            $message = 'Gespeichert.';
-        }
+        if (addEntry((string)$_POST['text'])) $message = 'Gespeichert.';
     }
 
     // Delete
     if (isset($_GET['delete'])) {
-        $id      = $_GET['delete'];
-        $entries = loadEntries();
-        $entries = array_values(array_filter($entries, fn($e) => $e['id'] !== $id));
-        saveEntries($entries);
+        deleteEntry((string)$_GET['delete']);
         header('Location: index.php');
         exit;
     }
 
-    // Clear all: texts, file index and every blob under uploads/ (incl. orphans)
+    // Revoke an API token
+    if (isset($_GET['deltoken'])) {
+        deleteToken((string)$_GET['deltoken']);
+        header('Location: index.php?msg=tokendel#api');
+        exit;
+    }
+
+    // Clear all: texts, file index and every blob under uploads/ (incl. orphans).
+    // API tokens stay.
     if (isset($_GET['clearall'])) {
-        saveEntries([]);
-        saveFiles([]);
-        $remaining = purgeUploads();
+        $remaining = clearAll();
         header('Location: index.php' . ($remaining ? '?err=purge' : ''));
         exit;
     }
 
     $entries = loadEntries();
     $files   = loadFiles();
+    $tokens  = loadTokens();
 
     if (isset($_GET['json'])) {
         header('Content-Type: application/json; charset=utf-8');
@@ -508,6 +760,18 @@ header('Content-Type: text/html; charset=utf-8');
   .progress-text { font-size: .85rem; color: #555; margin-top: .6rem; display: flex; justify-content: space-between; gap: 1rem; }
   .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid #ccc; border-top-color: #4a6fa5; border-radius: 50%; animation: spin .7s linear infinite; vertical-align: -2px; margin-right: .4rem; }
   @keyframes spin { to { transform: rotate(360deg); } }
+  .api-card { margin-top: 1.5rem; }
+  .api-card summary { cursor: pointer; font-weight: 600; color: #555; }
+  .api-card .hint { font-size: .82rem; color: #777; margin: .7rem 0; line-height: 1.45; }
+  .api-card code { font-family: ui-monospace, Consolas, monospace; font-size: .82rem; background: #f3f4f7; border-radius: 4px; padding: .1rem .3rem; word-break: break-all; }
+  .token-new { background: #fff8e1; border: 1px solid #f0d77a; border-radius: 8px; padding: .7rem .9rem; margin: .7rem 0; font-size: .85rem; }
+  .token-new .token-value { display: flex; align-items: center; gap: .4rem; margin-top: .4rem; }
+  .token-list { list-style: none; margin: .5rem 0; }
+  .token-list li { display: flex; align-items: center; gap: .6rem; padding: .45rem 0; border-top: 1px solid #eee; font-size: .88rem; }
+  .token-list .token-info { flex: 1; min-width: 0; word-break: break-word; }
+  .token-list .file-sub { margin-top: .1rem; }
+  .token-form { display: flex; gap: .5rem; flex-wrap: wrap; margin-top: .6rem; }
+  .token-form input[type=text] { flex: 1; min-width: 12rem; width: auto; }
 </style>
 </head>
 <body>
@@ -619,6 +883,50 @@ header('Content-Type: text/html; charset=utf-8');
     </div>
   <?php endforeach; ?>
   </div>
+
+  <?php $apiBase = (IS_HTTPS ? 'https' : 'http') . '://' . ($_SERVER['HTTP_HOST'] ?? 'localhost') . ($_SERVER['SCRIPT_NAME'] ?? '/index.php'); ?>
+  <details class="card api-card" id="api"<?= $newToken !== '' || ($_GET['msg'] ?? '') === 'tokendel' ? ' open' : '' ?>>
+    <summary>API-Zugänge (<?= count($tokens) ?>)</summary>
+    <p class="hint">
+      Mit einem API-Token können Programme, Skripte und Claude Texte und Dateien senden, lesen und löschen – ohne PIN.
+      Endpunkt: <code><?= htmlspecialchars($apiBase) ?>?api=…</code>, Token im Header <code>X-Clipboard-Token</code>.
+      Jedes Token gewährt vollen Zugriff auf das Clipboard; nicht mehr benötigte Tokens bitte widerrufen.
+    </p>
+
+    <?php if ($newToken !== ''): ?>
+      <div class="token-new">
+        <strong>Neues Token – jetzt kopieren, es wird nur einmal angezeigt:</strong>
+        <div class="token-value">
+          <code><?= htmlspecialchars($newToken) ?></code>
+          <button class="icon-btn" onclick="copyText(this)" data-text="<?= htmlspecialchars($newToken, ENT_QUOTES) ?>" title="Kopieren" aria-label="Token kopieren"><?= $copySvg ?></button>
+        </div>
+      </div>
+    <?php endif; ?>
+
+    <?php if ($tokens): ?>
+      <ul class="token-list">
+        <?php foreach ($tokens as $t): ?>
+          <li>
+            <div class="token-info">
+              <strong><?= htmlspecialchars($t['name']) ?></strong> <code><?= htmlspecialchars($t['hint']) ?></code>
+              <div class="file-sub">
+                erstellt <?= date('d.m.Y H:i', (int)$t['created']) ?> ·
+                <?= $t['last_used'] ? 'zuletzt benutzt ' . date('d.m.Y H:i', (int)$t['last_used']) : 'noch nie benutzt' ?>
+              </div>
+            </div>
+            <a class="btn btn-danger" href="?deltoken=<?= urlencode($t['id']) ?>&amp;csrf=<?= htmlspecialchars(CSRF_TOKEN) ?>" onclick="return confirm(<?= htmlspecialchars(json_encode('Token „' . $t['name'] . '“ widerrufen? Programme, die es nutzen, verlieren den Zugriff.', JSON_UNESCAPED_UNICODE), ENT_QUOTES) ?>)">Widerrufen</a>
+          </li>
+        <?php endforeach; ?>
+      </ul>
+    <?php endif; ?>
+
+    <form method="post" class="token-form">
+      <input type="hidden" name="csrf" value="<?= htmlspecialchars(CSRF_TOKEN) ?>">
+      <input type="hidden" name="newtoken" value="1">
+      <input type="text" name="token_name" maxlength="60" placeholder="Name, z. B. Laptop-Skript oder Claude" required>
+      <button class="btn btn-primary" type="submit">Token erzeugen</button>
+    </form>
+  </details>
 
   <div class="version">Clipboard <?= htmlspecialchars(APP_VERSION) ?></div>
 
