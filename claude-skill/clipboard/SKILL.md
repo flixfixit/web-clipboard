@@ -42,6 +42,6 @@ Antworten sind JSON. Listen sind nach Datum absteigend sortiert, der erste Eintr
    TOKEN=cbt_…
    ```
 
-   Alternativ die Umgebungsvariablen `CLIPBOARD_URL` und `CLIPBOARD_TOKEN` setzen, z. B. im Block `env` von `~/.claude/settings.json`.
+   Unter Windows wird auch `%USERPROFILE%\.config\clipboard\config` gelesen. Alternativ die Umgebungsvariablen `CLIPBOARD_URL` und `CLIPBOARD_TOKEN` setzen, z. B. im Block `env` von `~/.claude/settings.json`.
 
 Das Token nie im Chat ausgeben und nie in Dateien im Projekt schreiben. Bei „Ungültiges API-Token“ den Nutzer bitten, ein neues Token zu erzeugen.

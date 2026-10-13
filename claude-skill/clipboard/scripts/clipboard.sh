@@ -5,6 +5,7 @@
 # Configuration, first match wins:
 #   CLIPBOARD_URL / CLIPBOARD_TOKEN environment variables
 #   ${XDG_CONFIG_HOME:-~/.config}/clipboard/config with lines URL=… and TOKEN=…
+#   on Windows also %USERPROFILE%\.config\clipboard\config (Git Bash may set HOME elsewhere)
 # URL is the address of the app, e.g. https://example.org/clipboard/
 #
 # Usage: clipboard.sh <command> [args]
@@ -26,6 +27,10 @@ SINGLE_MAX=$((50 * 1024 * 1024)) # below the 64 MB upload limit of typical share
 die() { echo "clipboard: $*" >&2; exit 1; }
 
 config_file="${XDG_CONFIG_HOME:-$HOME/.config}/clipboard/config"
+win_config="${USERPROFILE:+${USERPROFILE//\\//}/.config/clipboard/config}" # C:\Users\x → C:/Users/x
+if [ ! -f "$config_file" ] && [ -n "$win_config" ] && [ -f "$win_config" ]; then
+    config_file="$win_config"
+fi
 conf() { [ -f "$config_file" ] && sed -n "s/^$1=//p" "$config_file" | tail -n 1 | tr -d '\r' || true; }
 url="${CLIPBOARD_URL:-$(conf URL)}"
 token="${CLIPBOARD_TOKEN:-$(conf TOKEN)}"
