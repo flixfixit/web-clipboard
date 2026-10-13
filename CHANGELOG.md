@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Claude-Skill: Der Client liest die Konfiguration unter Windows zusätzlich aus `%USERPROFILE%\.config\clipboard\config`, falls Git Bash `HOME` woanders hinlegt.
 - REST-API unter `index.php?api=…`: Texte und Dateien senden, lesen, herunterladen und löschen sowie alles löschen, wie in der Oberfläche. Authentifizierung per API-Token im Header `X-Clipboard-Token` oder `Authorization: Bearer`; große Dateien per Chunk-Upload. Falsche Tokens zählen zur Login-Sperre.
 - Verwaltung der API-Tokens in der Oberfläche („API-Zugänge“): Token mit Namen erzeugen (wird einmal angezeigt), letzte Nutzung sehen, widerrufen. Gespeichert wird nur der Hash in `api-tokens.json`.
 - `.htaccess` reicht den `Authorization`-Header an PHP als FastCGI weiter (IONOS); die Kopie in `setup.php` ist angepasst. Bestehende Installationen bekommen die neue `.htaccess` mit dem nächsten Deployment.

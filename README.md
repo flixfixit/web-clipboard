@@ -129,7 +129,7 @@ Installation:
    TOKEN=cbt_…
    ```
 
-   Alternativ `CLIPBOARD_URL` und `CLIPBOARD_TOKEN` als Umgebungsvariablen setzen.
+   Unter Windows wird zusätzlich `%USERPROFILE%\.config\clipboard\config` gelesen; das hilft, wenn Git Bash `HOME` auf ein anderes Laufwerk legt. Alternativ `CLIPBOARD_URL` und `CLIPBOARD_TOKEN` als Umgebungsvariablen setzen, z. B. im Block `env` von `~/.claude/settings.json`; sie haben Vorrang vor der Datei.
 4. Claude Code neu starten und z. B. „Prüf die Verbindung zum Clipboard“ eingeben.
 
 Der Skill gehört nicht ins Release-ZIP und wird nicht auf den Server deployt.
