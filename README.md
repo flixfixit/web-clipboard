@@ -9,6 +9,8 @@ Eine kleine, eigenständige PHP-Clipboard-Webapp für private Textschnipsel und 
 - Text-Clipboard mit Kopieren, Löschen und automatischem Refresh
 - Datei-Uploads mit Drag & Drop, Fortschrittsanzeige und Chunked Uploads
 - Automatisches Löschen hochgeladener Dateien nach konfigurierbarer TTL
+- REST-API mit API-Tokens für Programme und Skripte; Tokens werden in der App erzeugt und widerrufen
+- Claude-Skill, mit dem Claude Code Texte und Dateien ans Clipboard schickt und von dort holt
 - Direkter Zugriff auf JSON-Speicher, Upload-Blobs und Dot-Pfade (`.git`, `.env` …) per Apache-Regeln blockiert
 
 ## Voraussetzungen
@@ -65,6 +67,73 @@ Solange kein eigener PIN gesetzt ist (leer oder noch der Platzhalter aus `config
 | `login_max_attempts` | Fehlversuche pro IP bis zur Login-Sperre (Standard 5). |
 | `login_lockout_minutes` | Dauer der Login-Sperre in Minuten (Standard 15). |
 
+## REST-API
+
+Alles, was die Oberfläche kann, geht auch per API: Texte und Dateien senden, lesen, herunterladen und löschen.
+
+### Token erzeugen
+
+Angemeldet ganz unten „API-Zugänge“ aufklappen, einen Namen vergeben (z. B. „Laptop-Skript“) und „Token erzeugen“. Das Token (`cbt_…`) wird genau einmal angezeigt; gespeichert wird nur sein SHA-256-Hash in `api-tokens.json` neben `data.json`. Die Liste zeigt, wann ein Token zuletzt benutzt wurde, und jedes Token lässt sich einzeln widerrufen. Ein Token gewährt vollen Zugriff, wie der PIN. „Alle löschen“ lässt die Tokens stehen, ein neues Passwort ebenfalls.
+
+### Anfragen
+
+Basis-URL ist `index.php` der Instanz, das Token steht in einem Header, nie in der URL:
+
+- `X-Clipboard-Token: cbt_…` (funktioniert überall)
+- `Authorization: Bearer cbt_…` (bei PHP als FastCGI nur dank der Weiterleitung in `.htaccess`)
+
+| Methode | URL | Wirkung |
+| --- | --- | --- |
+| `GET` | `?api=ping` | Verbindung und Token prüfen (`version`, Name des Tokens) |
+| `GET` | `?api=texts` | alle Texte, neueste zuerst |
+| `GET` | `?api=texts&id=…` | ein Text |
+| `POST` | `?api=texts` | Text speichern: JSON `{"text": "…"}`, Formularfeld `text` oder Body mit `Content-Type: text/plain` → `201` |
+| `DELETE` | `?api=texts&id=…` | Text löschen |
+| `GET` | `?api=files` | alle Dateien (Name, Größe in Bytes, Datum) |
+| `GET` | `?api=files&id=…` | Datei herunterladen |
+| `POST` | `?api=files` | Datei(en) hochladen, Formularfeld `file` bzw. `file[]` → `201` |
+| `DELETE` | `?api=files&id=…` | Datei löschen |
+| `DELETE` | `?api=all` | alle Texte und Dateien löschen |
+
+Antworten sind JSON mit `ok` und bei Fehlern `error` (`400` ungültige Anfrage, `401` Token fehlt oder ungültig, `404` nicht gefunden, `405` falsche Methode, `413` Datei zu groß, `429` zu viele Fehlversuche). Falsche Tokens zählen zur selben Sperre pro IP wie falsche PINs. Wer kein `DELETE` senden kann, nutzt `POST` mit `&_method=DELETE`.
+
+Uploads in einem Stück sind durch `upload_max_filesize`/`post_max_size` begrenzt (IONOS: 64 MB). Größere Dateien in Chunks senden, wie die Oberfläche: mehrere `POST ?api=files` mit den Formularfeldern `uploadId` (Hex, pro Datei gleich), `chunkIndex` (ab 0), `totalChunks`, `fileName` und `chunk` (die Daten). Die letzte Antwort enthält die fertige Datei.
+
+Beispiele:
+
+```bash
+curl -H "X-Clipboard-Token: $TOKEN" -H "Content-Type: text/plain" --data-binary "Hallo" "https://example.org/clipboard/index.php?api=texts"
+curl -H "X-Clipboard-Token: $TOKEN" -F "file=@bericht.pdf" "https://example.org/clipboard/index.php?api=files"
+curl -H "X-Clipboard-Token: $TOKEN" "https://example.org/clipboard/index.php?api=texts"
+```
+
+```powershell
+$h = @{ 'X-Clipboard-Token' = $env:CLIPBOARD_TOKEN }
+Invoke-RestMethod -Method Post -Headers $h -ContentType 'application/json; charset=utf-8' `
+  -Body (@{ text = 'Hallo' } | ConvertTo-Json) 'https://example.org/clipboard/index.php?api=texts'
+Invoke-RestMethod -Method Post -Headers $h -Form @{ file = Get-Item .\bericht.pdf } 'https://example.org/clipboard/index.php?api=files'
+```
+
+## Claude-Skill
+
+`claude-skill/clipboard/` enthält einen Skill für Claude Code (Desktop-App oder CLI). Damit lassen sich im Chat Sätze wie „schick das ans Clipboard“ oder „hol den letzten Text aus dem Clipboard“ verwenden. Der Skill nutzt `scripts/clipboard.sh` (bash und curl; unter Windows Git Bash). Das Skript ist auch ohne Claude als Kommandozeilen-Client nutzbar (`bash clipboard.sh` zeigt die Befehle).
+
+Installation:
+
+1. Den Ordner `claude-skill/clipboard` nach `~/.claude/skills/clipboard` kopieren (Windows: `%USERPROFILE%\.claude\skills\clipboard`).
+2. In der App ein Token erzeugen (siehe oben).
+3. `~/.config/clipboard/config` anlegen:
+
+   ```
+   URL=https://example.org/clipboard/
+   TOKEN=cbt_…
+   ```
+
+   Alternativ `CLIPBOARD_URL` und `CLIPBOARD_TOKEN` als Umgebungsvariablen setzen.
+4. Claude Code neu starten und z. B. „Prüf die Verbindung zum Clipboard“ eingeben.
+
+Der Skill gehört nicht ins Release-ZIP und wird nicht auf den Server deployt.
+
 ## Deployment
 
 1. Repository auf den Server kopieren oder per GitHub Actions/deinem Hosting-Workflow deployen.
@@ -85,7 +154,7 @@ Für Nginx muss der Schutz manuell in die Server-Konfiguration übertragen werde
 
 ### Automatisches Deployment per SFTP
 
-`.github/workflows/deploy.yml` rollt jeden Push auf `main` aus: erst die Prüfungen aus `ci.yml`, dann das Paket mit demselben Inhalt wie das Release-ZIP bauen, per SFTP hochladen (`lftp mirror` ohne Löschen) und die Live-Instanz mit `dev/livecheck.sh` von außen prüfen. `config.php`, `data.json`, `files.json`, `login-attempts.json` und der Inhalt von `uploads/` auf dem Server werden nie überschrieben oder gelöscht. Über *Actions → Deploy → Run workflow* lässt sich ein Deployment auch von Hand starten.
+`.github/workflows/deploy.yml` rollt jeden Push auf `main` aus: erst die Prüfungen aus `ci.yml`, dann das Paket mit demselben Inhalt wie das Release-ZIP bauen, per SFTP hochladen (`lftp mirror` ohne Löschen) und die Live-Instanz mit `dev/livecheck.sh` von außen prüfen. `config.php`, `data.json`, `files.json`, `login-attempts.json`, `api-tokens.json` und der Inhalt von `uploads/` auf dem Server werden nie überschrieben oder gelöscht. Über *Actions → Deploy → Run workflow* lässt sich ein Deployment auch von Hand starten.
 
 Einrichtung (einmalig, unter *Settings → Environments*):
 
@@ -120,7 +189,7 @@ Es gibt keinen Build-Prozess. Für die lokale Entwicklung liegt alles unter `dev
 | `dev/serve.ps1` | Startet `php -S 127.0.0.1:8080` mit Router und höheren Upload-Grenzen (5-MB-Chunks brauchen mehr als die PHP-Vorgabe von 2 MB). Legt `.devdata/` und – falls nicht vorhanden – eine `config.php` an, die `dev/config.dev.php` lädt. |
 | `dev/router.php` | Ersetzt lokal die `.htaccess`-Regeln: `config.php`, `*.json`, `uploads/`, `dev/` und Dotfiles liefern 403. |
 | `dev/config.dev.php` | Dev-Konfiguration: Test-PIN `dev-pin-4711` (oder `CLIPBOARD_PIN`), Daten in `.devdata/`. |
-| `dev/smoketest.php` | Automatischer Smoke-Test gegen den laufenden Server (Schutzregeln, Login, Text, Chunked Upload, Download, Löschen, Logout). |
+| `dev/smoketest.php` | Automatischer Smoke-Test gegen den laufenden Server (Schutzregeln, Login, Text, Chunked Upload, Download, Löschen, API-Tokens, REST-API, Logout). |
 | `dev/apache.ps1`, `dev/apache/` | Lokaler Apache in WSL, der das IONOS-Webhosting nachbildet (siehe unten). |
 
 PHP unter Windows installieren und Server starten:
@@ -163,10 +232,11 @@ Teste zusätzlich manuell im Browser:
 - Datei hochladen, herunterladen, löschen
 - großer Upload, damit der Chunked-Upload-Pfad ausgeführt wird
 - JSON-Refresh über `?json=1` im angemeldeten Zustand
+- API-Token erzeugen, per Skript Text und Datei senden, Token widerrufen
 
 ## Release
 
-Ein Release ist ein ZIP mit genau den Dateien, die auf dem Webserver gebraucht werden: `index.php`, `setup.php`, `config.example.php`, `.htaccess`, `uploads/.htaccess` und `LICENSE`. Doku, `dev/` und Git-Dateien sind per `export-ignore` in `.gitattributes` ausgeschlossen; Laufzeitdaten wie `config.php` können nicht hineingeraten, weil das ZIP mit `git archive` aus dem committeten Stand entsteht. Die Version wird dabei in `index.php` eingetragen (`export-subst`) und unten in der App angezeigt; ein normaler Checkout zeigt `dev`.
+Ein Release ist ein ZIP mit genau den Dateien, die auf dem Webserver gebraucht werden: `index.php`, `setup.php`, `config.example.php`, `.htaccess`, `uploads/.htaccess` und `LICENSE`. Doku, `dev/`, `claude-skill/` und Git-Dateien sind per `export-ignore` in `.gitattributes` ausgeschlossen; Laufzeitdaten wie `config.php` können nicht hineingeraten, weil das ZIP mit `git archive` aus dem committeten Stand entsteht. Die Version wird dabei in `index.php` eingetragen (`export-subst`) und unten in der App angezeigt; ein normaler Checkout zeigt `dev`.
 
 Release veröffentlichen:
 
@@ -195,6 +265,7 @@ Nicht committen:
 - `data.json`
 - `files.json`
 - `login-attempts.json`
+- `api-tokens.json`
 - `setup-started.json`
 - Inhalte in `uploads/`
 

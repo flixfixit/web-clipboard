@@ -55,6 +55,13 @@ function setupHtaccessFiles(): array {
     CheckSpelling Off
 </IfModule>
 
+# PHP as FastCGI (e.g. IONOS) does not receive the Authorization header; pass
+# it on so the REST API also accepts "Authorization: Bearer <token>"
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
+</IfModule>
+
 HTACCESS,
         'uploads/.htaccess' => <<<'HTACCESS'
 # No direct access to uploaded blobs — downloads are streamed via index.php

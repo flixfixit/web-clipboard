@@ -13,5 +13,8 @@ uploads/*
 # Login throttling counters (index.php)
 login-attempts.json
 
+# API tokens (index.php, only hashes)
+api-tokens.json
+
 # Release builds (dev/build-release.ps1)
 dist/

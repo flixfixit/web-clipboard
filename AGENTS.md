@@ -10,6 +10,7 @@ Die Laufzeitdaten liegen standardmäßig im Projektverzeichnis:
 
 - `data.json`: Text-Einträge
 - `files.json`: Metadaten zu Uploads
+- `api-tokens.json`: Hashes der API-Tokens (liegt neben `data.json`)
 - `uploads/`: zufällig benannte Datei-Blobs und temporäre Chunk-Ordner
 
 Diese Dateien und Ordnerinhalte sind lokale Laufzeitdaten und dürfen nicht ins Git-Repository.
@@ -25,6 +26,7 @@ Diese Dateien und Ordnerinhalte sind lokale Laufzeitdaten und dürfen nicht ins 
 ├── .htaccess              # Schutz für JSON-Speicher und config.php
 ├── uploads/
 │   └── .htaccess          # blockiert direkten Zugriff auf Upload-Blobs
+├── claude-skill/clipboard/ # Claude-Code-Skill + bash-Client für die REST-API (nicht im Release)
 ├── dev/                   # lokale Dev-Umgebung (Router, Dev-Config, Startskript, Smoke-Test)
 │   ├── apache.ps1         # Steuerung des lokalen Apache in WSL
 │   └── apache/            # vHost, Setup-Skript und PHP-Grenzen wie beim IONOS-Hosting
@@ -45,12 +47,15 @@ Diese Dateien und Ordnerinhalte sind lokale Laufzeitdaten und dürfen nicht ins 
 - `index.php` verarbeitet Login, Logout, Textaktionen, Dateiaktionen, JSON-Polling und HTML-Ausgabe.
 - Authentifizierung erfolgt über einen PIN und eine PHP-Session.
 - Uploads werden im Browser in 5-MB-Chunks gesendet und serverseitig zusammengesetzt.
-- Downloads laufen immer über `index.php?download=...`, damit der PIN-Schutz greift.
+- Downloads laufen immer über `index.php?download=...` (bzw. `?api=files&id=...`), damit der PIN- bzw. Token-Schutz greift.
+- REST-API: Anfragen mit `?api=...` beantwortet `runApi()` noch vor `session_start()`. Sie authentifizieren sich nur per API-Token (Header `X-Clipboard-Token` oder `Authorization: Bearer`), nie per Session. Oberfläche und API nutzen dieselben Funktionen (`addEntry()`, `deleteEntry()`, `storeUpload()`, `receiveChunk()`, `deleteFile()`, `clearAll()`, `sendFile()`).
+- API-Tokens werden in der Oberfläche unter „API-Zugänge“ erzeugt und widerrufen (`createToken()`, `deleteToken()`); gespeichert wird nur der SHA-256-Hash.
 - Direkter Zugriff auf Upload-Dateien soll durch `uploads/.htaccess` verhindert werden.
 
 ## Wichtige Invarianten
 
-- Keine neuen Aktionen dürfen vor der Authentifizierungsprüfung erreichbar sein. Einzige Ausnahme ist `setup.php`: nur solange keine `config.php` existiert, nur im 30-Minuten-Zeitfenster und nie direkt aufrufbar.
+- Keine neuen Aktionen dürfen vor der Authentifizierungsprüfung erreichbar sein. Einzige Ausnahme ist `setup.php`: nur solange keine `config.php` existiert, nur im 30-Minuten-Zeitfenster und nie direkt aufrufbar. Die REST-API prüft ihr Token als Erstes in `runApi()`; neue API-Aktionen gehören hinter diese Prüfung.
+- API-Tokens nie aus der URL lesen und nie im Klartext speichern. Neue API-Aktionen in README (Abschnitt „REST-API“), im Skill (`claude-skill/clipboard/`) und in `dev/smoketest.php` ergänzen.
 - `setup.php` enthält Kopien von `.htaccess` und `uploads/.htaccess`. Wer diese Dateien ändert, passt `setupHtaccessFiles()` mit an; `dev/smoketest.php` prüft die Übereinstimmung.
 - Jede neue verändernde Aktion muss im CSRF-Block von `index.php` erfasst sein (`$changesState`). POST ist automatisch abgedeckt, GET-Aktionen müssen dort ergänzt werden, und Links/Formulare müssen `csrf` mitsenden.
 - Upload-Blobs dürfen nie direkt öffentlich verlinkt oder anhand ihres Dateinamens ausgeliefert werden.
@@ -67,7 +72,8 @@ Diese Dateien und Ordnerinhalte sind lokale Laufzeitdaten und dürfen nicht ins 
 - Konfiguration: oberer Block in `index.php` und `config.example.php`
 - Textspeicher: `loadEntries()`, `saveEntries()` und Textaktionen
 - Datei-Metadaten: `loadFiles()`, `saveFiles()` und Dateiaktionen
-- Upload-Verhalten: PHP-Block `chunked` und JavaScript-Konstante `CHUNK_SIZE`
+- Upload-Verhalten: `receiveChunk()` und JavaScript-Konstante `CHUNK_SIZE`
+- REST-API: `runApi()` und die Token-Funktionen darüber
 - Darstellung: `<style>` und gerendertes HTML in `index.php`
 - Client-Interaktion: JavaScript am Ende von `index.php`
 

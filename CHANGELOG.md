@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- REST-API unter `index.php?api=…`: Texte und Dateien senden, lesen, herunterladen und löschen sowie alles löschen, wie in der Oberfläche. Authentifizierung per API-Token im Header `X-Clipboard-Token` oder `Authorization: Bearer`; große Dateien per Chunk-Upload. Falsche Tokens zählen zur Login-Sperre.
+- Verwaltung der API-Tokens in der Oberfläche („API-Zugänge“): Token mit Namen erzeugen (wird einmal angezeigt), letzte Nutzung sehen, widerrufen. Gespeichert wird nur der Hash in `api-tokens.json`.
+- `.htaccess` reicht den `Authorization`-Header an PHP als FastCGI weiter (IONOS); die Kopie in `setup.php` ist angepasst. Bestehende Installationen bekommen die neue `.htaccess` mit dem nächsten Deployment.
+- Claude-Skill `claude-skill/clipboard/` mit bash-Client: Texte und Dateien aus Claude Code ans Clipboard schicken und von dort holen. Nicht Teil des Release-ZIPs.
+- Smoke-Test prüft Token-Verwaltung und REST-API, der Live-Check zusätzlich, dass die API ohne Token nichts liefert und `api-tokens.json` gesperrt ist.
+
 ## 1.1.0 - 2026-10-12
 
 - Automatisches Deployment: Jeder Push auf `main` wird nach den Prüfungen per SFTP ausgerollt (`.github/workflows/deploy.yml`, GitHub-Environment `production`). Laufzeitdaten auf dem Server bleiben unangetastet, der Host-Key des Servers ist gepinnt.
